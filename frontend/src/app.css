@@ -1,0 +1,374 @@
+/* ---- 本地字体（通过 @fontsource 包，离线可用，无外部依赖） ---- */
+@import '@fontsource/plus-jakarta-sans/400.css';
+@import '@fontsource/plus-jakarta-sans/500.css';
+@import '@fontsource/plus-jakarta-sans/600.css';
+@import '@fontsource/plus-jakarta-sans/700.css';
+@import '@fontsource/plus-jakarta-sans/800.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════
+   vitoice 3.0 — 全局样式
+   字体：Plus Jakarta Sans (display) + Inter (body) + JetBrains Mono (code)
+   主题：自动跟随系统，默认深色
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ---- 深色主题（默认） ---- */
+:root {
+  /* 背景层次：从深到浅 */
+  --bg: #0e1011;
+  --bg-elevated: #16181a;
+  --bg-surface: #1d2022;
+  --bg-hover: #25292c;
+  --bg-active: #2f3438;
+
+  /* 别名：组件中广泛使用的 --bg2 / --bg-soft 映射到已定义的层次 */
+  --bg2: var(--bg-elevated);
+  --bg-soft: var(--bg-hover);
+
+  /* 文字层次 */
+  --ink: #f3f5f5;
+  --ink-secondary: #aeb4b6;
+  --ink-tertiary: #788084;
+  --ink-faint: #50575c;
+
+  /* 组件别名：广泛使用但未在此处定义的变量，补全以消除 fallback 空值 */
+  --muted: var(--ink-tertiary);
+
+  /* 边框 / 分割线 */
+  --rule: #282d30;
+  --rule-light: #1f2426;
+
+  /* 强调色 — signal mint */
+  --accent: #3ed6a4;
+  --accent-hover: #59e0b5;
+  --accent-soft: rgba(62, 214, 164, 0.14);
+  --accent-glow: rgba(62, 214, 164, 0.28);
+
+  /* 次强调色 — amber */
+  --accent2: #f5b942;
+  --accent2-soft: rgba(245, 185, 66, 0.14);
+
+  /* 语义色 */
+  --ok: #4ade80;
+  --ok-soft: rgba(74, 222, 128, 0.14);
+  --warn: #fbbf24;
+  --danger: #fb7185;
+  --danger-soft: rgba(251, 113, 133, 0.14);
+
+  /* 中性 */
+  --neutral: #788084;
+
+  /* 圆角 */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 999px;
+
+  /* 组件别名：广泛使用但未在此处定义的变量，补全以消除 fallback 空值 */
+  --radius-card: var(--radius);
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.38);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+
+  /* 字体族 */
+  --font-display: 'Plus Jakarta Sans', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-body: 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+
+  /* 动效 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 350ms;
+
+  /* 布局 */
+  --topnav-h: 56px;
+  --sidebar-w: 224px;
+  --sidebar-collapsed-w: 56px;
+
+  /* 组件别名补全：修复历史组件引用了未定义变量导致的 hover/文字/边框失效 */
+  --ink2: var(--ink-secondary);
+  --muted2: var(--ink-tertiary);
+  --faint: var(--ink-faint);
+  --bg3: var(--bg-surface);
+  --hover: var(--bg-hover);
+  --text: var(--ink);
+  --text-muted: var(--ink-tertiary);
+  --text-primary: var(--ink);
+  --text-tertiary: var(--ink-tertiary);
+  --border: var(--rule);
+  --accent-40: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* ---- 浅色主题变量集（命名复用，通过选择器切换） ---- */
+/* 强制浅色：data-theme="light" */
+[data-theme='light'] {
+  --bg: #f6f8f7;
+  --bg-elevated: #ffffff;
+  --bg-surface: #eef2f0;
+  --bg-hover: #e5eae7;
+  --bg-active: #dbe2de;
+
+  --bg2: var(--bg-elevated);
+  --bg-soft: var(--bg-hover);
+
+  --ink: #17201d;
+  --ink-secondary: #55615d;
+  --ink-tertiary: #7d8984;
+  --ink-faint: #adb6b2;
+
+  --rule: #dfe5e2;
+  --rule-light: #edf1ef;
+
+  --accent: #0ba881;
+  --accent-hover: #0e9473;
+  --accent-soft: rgba(11, 168, 129, 0.12);
+  --accent-glow: rgba(11, 168, 129, 0.18);
+
+  --accent2: #c77d00;
+  --accent2-soft: rgba(199, 125, 0, 0.12);
+
+  --ok: #16a34a;
+  --warn: #d97706;
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.10);
+
+  --neutral: #7d8984;
+
+  --shadow-sm: 0 1px 2px rgba(20, 30, 26, 0.06);
+  --shadow: 0 6px 18px rgba(20, 30, 26, 0.08);
+  --shadow-md: 0 12px 30px rgba(20, 30, 26, 0.12);
+  --shadow-lg: 0 18px 48px rgba(20, 30, 26, 0.16);
+}
+
+/* 跟随系统：data-theme="system" 或未设置时，按 prefers-color-scheme 切换 */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']):not([data-theme='light']) {
+    --bg: #f6f8f7;
+    --bg-elevated: #ffffff;
+    --bg-surface: #eef2f0;
+    --bg-hover: #e5eae7;
+    --bg-active: #dbe2de;
+
+    --bg2: var(--bg-elevated);
+    --bg-soft: var(--bg-hover);
+
+    --ink: #17201d;
+    --ink-secondary: #55615d;
+    --ink-tertiary: #7d8984;
+    --ink-faint: #adb6b2;
+
+    --rule: #dfe5e2;
+    --rule-light: #edf1ef;
+
+    --accent: #0ba881;
+    --accent-hover: #0e9473;
+    --accent-soft: rgba(11, 168, 129, 0.12);
+    --accent-glow: rgba(11, 168, 129, 0.18);
+
+    --accent2: #c77d00;
+    --accent2-soft: rgba(199, 125, 0, 0.12);
+
+    --ok: #16a34a;
+    --warn: #d97706;
+    --danger: #dc2626;
+    --danger-soft: rgba(220, 38, 38, 0.10);
+
+    --neutral: #7d8984;
+
+    --shadow-sm: 0 1px 2px rgba(20, 30, 26, 0.06);
+    --shadow: 0 6px 18px rgba(20, 30, 26, 0.08);
+    --shadow-md: 0 12px 30px rgba(20, 30, 26, 0.12);
+    --shadow-lg: 0 18px 48px rgba(20, 30, 26, 0.16);
+  }
+}
+
+/* 强制深色：data-theme="dark" */
+[data-theme='dark'] {
+  --bg: #0e1011;
+  --bg-elevated: #16181a;
+  --bg-surface: #1d2022;
+  --bg-hover: #25292c;
+  --bg-active: #2f3438;
+  --bg2: var(--bg-elevated);
+  --bg-soft: var(--bg-hover);
+  --ink: #f3f5f5;
+  --ink-secondary: #aeb4b6;
+  --ink-tertiary: #788084;
+  --ink-faint: #50575c;
+  --rule: #282d30;
+  --rule-light: #1f2426;
+  --accent: #3ed6a4;
+  --accent-hover: #59e0b5;
+  --accent-soft: rgba(62, 214, 164, 0.14);
+  --accent-glow: rgba(62, 214, 164, 0.28);
+  --accent2: #f5b942;
+  --accent2-soft: rgba(245, 185, 66, 0.14);
+  --ok: #4ade80;
+  --ok-soft: rgba(74, 222, 128, 0.14);
+  --danger: #fb7185;
+  --danger-soft: rgba(251, 113, 133, 0.14);
+  --neutral: #788084;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.38);
+}
+
+/* ---- 基础重置 ---- */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  color-scheme: light dark;
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input, select, textarea {
+  font-family: inherit;
+}
+
+code, pre {
+  font-family: var(--font-mono);
+}
+
+/* ---- 滚动条 ---- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-tertiary);
+}
+
+/* ---- 文本选区 ---- */
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* ---- 全局动画关键帧 ---- */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+  50% { box-shadow: 0 0 0 4px transparent; }
+}
+
+/* ---- 工具类 ---- */
+.anim-fade-in { animation: fade-in var(--dur) var(--ease-out); }
+.anim-slide-up { animation: slide-up var(--dur) var(--ease-out); }
+.anim-scale-in { animation: scale-in var(--dur) var(--ease-spring); }
+
+/* 骨架屏 shimmer 效果 */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-surface) 0%,
+    var(--bg-hover) 50%,
+    var(--bg-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* 玻璃毛玻璃效果 */
+.glass {
+  background: color-mix(in srgb, var(--bg-elevated) 75%, transparent);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+
+/* 聚焦环 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 去除焦点轮廓（鼠标点击时） */
+:focus:not(:focus-visible) {
+  outline: none;
+}

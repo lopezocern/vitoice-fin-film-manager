@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>vitoice 管理页 / 媒体资产工作台设计稿</title>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d1110;
+      --surface: #141a18;
+      --surface-2: #19211e;
+      --surface-3: #202a26;
+      --line: #293530;
+      --line-strong: #3a4a43;
+      --text: #edf5f0;
+      --text-2: #b2c0b9;
+      --text-3: #77867f;
+      --mint: #5be0b1;
+      --mint-dim: rgba(91, 224, 177, .13);
+      --blue: #86b5ff;
+      --blue-dim: rgba(134, 181, 255, .13);
+      --amber: #f2bd65;
+      --amber-dim: rgba(242, 189, 101, .13);
+      --red: #f18086;
+      --red-dim: rgba(241, 128, 134, .13);
+      --purple: #c4a1e6;
+      --shadow: 0 24px 70px rgba(0, 0, 0, .34);
+      --radius: 8px;
+      --title-h: 34px;
+      --nav-h: 52px;
+      --side-w: 236px;
+    }
+
+    [data-theme="light"] {
+      --bg: #f3f7f4;
+      --surface: #ffffff;
+      --surface-2: #edf3ef;
+      --surface-3: #e3ece7;
+      --line: #d7e2dc;
+      --line-strong: #b9cac0;
+      --text: #17231d;
+      --text-2: #52645a;
+      --text-3: #7d8c84;
+      --mint: #0a9c75;
+      --mint-dim: rgba(10, 156, 117, .11);
+      --blue: #3d76db;
+      --blue-dim: rgba(61, 118, 219, .1);
+      --amber: #a96e00;
+      --amber-dim: rgba(169, 110, 0, .1);
+      --red: #c94b55;
+      --red-dim: rgba(201, 75, 85, .1);
+      --purple: #7e51a8;
+      --shadow: 0 20px 60px rgba(24, 62, 44, .13);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+    body { font: 13px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; letter-spacing: 0; }
+    button, input, select { font: inherit; color: inherit; }
+    button { border: 0; cursor: pointer; }
+    svg { display: block; }
+
+    .app { min-height: 100vh; display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); grid-template-rows: var(--title-h) var(--nav-h) 1fr; }
+    .titlebar { grid-column: 1 / -1; display: flex; align-items: center; padding: 0 12px; background: #090c0b; border-bottom: 1px solid #202825; color: #87968e; -webkit-app-region: drag; user-select: none; }
+    .app-caption { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+    .app-mark { width: 17px; height: 17px; display: grid; place-items: center; border-radius: 5px; background: var(--mint); color: #06100b; }
+    .app-mark svg { width: 10px; height: 10px; }
+    .drag-space { flex: 1; }
+    .window-actions { height: 100%; display: flex; -webkit-app-region: no-drag; }
+    .window-actions button { width: 46px; height: 100%; display: grid; place-items: center; background: transparent; color: #88968f; }
+    .window-actions button:hover { background: #222a27; color: #fff; }
+    .window-actions .close:hover { background: #d45159; }
+    .window-actions svg { width: 12px; height: 12px; }
+
+    .nav { grid-column: 1 / -1; display: flex; align-items: center; gap: 24px; padding: 0 14px; background: color-mix(in srgb, var(--surface) 92%, transparent); border-bottom: 1px solid var(--line); z-index: 5; }
+    .brand { width: 184px; display: flex; align-items: center; gap: 9px; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 17px; font-weight: 800; text-align: left; }
+    .brand-mark { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 8px; background: var(--mint); color: #06100b; }
+    .brand-mark svg { width: 15px; height: 15px; }
+    .product-tabs { display: flex; align-items: center; gap: 4px; }
+    .product-tab { height: 32px; padding: 0 14px; border-radius: 7px; background: transparent; color: var(--text-3); }
+    .product-tab:hover { background: var(--surface-3); color: var(--text); }
+    .product-tab.active { background: var(--mint-dim); color: var(--mint); font-weight: 700; }
+    .search-trigger { width: min(390px, 31vw); height: 32px; margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text-3); text-align: left; }
+    .search-trigger:hover { border-color: var(--line-strong); color: var(--text-2); }
+    .search-trigger span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .search-trigger kbd { padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 10px; }
+    .nav-actions { display: flex; gap: 3px; }
+    .icon-button { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 6px; background: transparent; color: var(--text-3); }
+    .icon-button:hover { background: var(--surface-3); color: var(--text); }
+    .icon-button svg { width: 16px; height: 16px; }
+    .task-dot { position: relative; }
+    .task-dot::after { content: ""; position: absolute; top: 5px; right: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--surface); }
+
+    .sidebar { grid-row: 3; min-height: calc(100vh - var(--title-h) - var(--nav-h)); padding: 15px 10px; background: var(--surface); border-right: 1px solid var(--line); overflow: auto; }
+    .side-label { display: flex; align-items: center; justify-content: space-between; padding: 5px 9px 7px; color: var(--text-3); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .side-group { margin-bottom: 18px; }
+    .side-item { width: 100%; min-height: 35px; display: flex; align-items: center; gap: 9px; padding: 0 9px; border-radius: 6px; background: transparent; color: var(--text-2); text-align: left; }
+    .side-item:hover { background: var(--surface-3); color: var(--text); }
+    .side-item.active { background: var(--mint-dim); color: var(--mint); }
+    .side-item svg { width: 15px; height: 15px; flex: 0 0 auto; }
+    .side-item .count { margin-left: auto; min-width: 22px; padding: 1px 6px; border-radius: 999px; background: var(--surface-3); color: var(--text-3); font-size: 10px; text-align: center; }
+    .side-item .count.warn { background: var(--amber-dim); color: var(--amber); }
+    .side-item .count.danger { background: var(--red-dim); color: var(--red); }
+    .side-item .core-tag { margin-left: auto; padding: 1px 5px; border: 1px solid color-mix(in srgb, var(--mint) 55%, transparent); border-radius: 4px; color: var(--mint); font-size: 8px; font-weight: 800; }
+    .side-item .core-tag + .count { margin-left: 4px; }
+    .side-rule { height: 1px; margin: 8px 9px 13px; background: var(--line); }
+    .library-mini { margin: 3px 2px 8px; padding: 10px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
+    .library-mini-head { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; }
+    .library-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); }
+    .library-mini small { display: block; margin: 5px 0 0 15px; color: var(--text-3); font-size: 10px; }
+    .library-mini .mini-line { height: 3px; margin-top: 9px; overflow: hidden; border-radius: 2px; background: var(--line); }
+    .library-mini .mini-line i { display: block; width: 92%; height: 100%; background: var(--mint); }
+    .library-mini.warn .library-dot { background: var(--amber); }
+    .library-mini.warn .mini-line i { width: 67%; background: var(--amber); }
+
+    main { grid-row: 3; min-width: 0; overflow: auto; padding: 25px clamp(20px, 3.1vw, 48px) 60px; }
+    .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+    .eyebrow { display: flex; align-items: center; gap: 7px; color: var(--mint); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .eyebrow svg { width: 13px; height: 13px; }
+    h1 { margin: 7px 0 4px; font-size: 27px; line-height: 1.15; letter-spacing: 0; }
+    .subhead { margin: 0; color: var(--text-3); font-size: 12px; }
+    .head-actions { display: flex; align-items: center; gap: 8px; }
+    .button { height: 33px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text-2); font-size: 11px; }
+    .button:hover { border-color: var(--line-strong); color: var(--text); }
+    .button.primary { border-color: var(--mint); background: var(--mint); color: #06100b; font-weight: 800; }
+    .button.primary:hover { filter: brightness(1.05); }
+    .button svg { width: 14px; height: 14px; }
+
+    .health-strip { display: grid; grid-template-columns: 1.65fr repeat(4, 1fr); gap: 1px; min-height: 104px; margin-bottom: 22px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--line); overflow: hidden; }
+    .health-main, .health-stat { padding: 16px 17px; background: var(--surface); }
+    .health-main { display: flex; align-items: center; gap: 14px; }
+    .health-ring { position: relative; width: 64px; height: 64px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(var(--mint) 0deg 330deg, var(--surface-3) 330deg 360deg); }
+    .health-ring::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--surface); }
+    .health-ring strong { position: relative; z-index: 1; font-size: 17px; }
+    .health-copy strong { display: block; font-size: 14px; }
+    .health-copy p { margin: 4px 0 0; color: var(--text-3); font-size: 10px; }
+    .health-stat { display: flex; flex-direction: column; justify-content: center; }
+    .health-stat .label { color: var(--text-3); font-size: 10px; }
+    .health-stat strong { margin-top: 4px; font-size: 22px; line-height: 1; }
+    .health-stat strong.good { color: var(--mint); }
+    .health-stat strong.warn { color: var(--amber); }
+    .health-stat strong.bad { color: var(--red); }
+    .health-stat small { margin-top: 6px; color: var(--text-3); font-size: 9px; }
+
+    .section-head { display: flex; align-items: center; gap: 10px; margin: 24px 0 10px; }
+    .section-head h2 { margin: 0; font-size: 15px; }
+    .section-head .muted { color: var(--text-3); font-size: 10px; }
+    .section-head .more { margin-left: auto; background: transparent; color: var(--mint); font-size: 10px; }
+    .issue-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .issue-card { position: relative; min-height: 118px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-align: left; transition: border-color .15s, transform .15s, background .15s; }
+    .issue-card:hover { transform: translateY(-1px); border-color: var(--line-strong); background: var(--surface-2); }
+    .issue-card .issue-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; background: var(--amber-dim); color: var(--amber); }
+    .issue-card .issue-icon svg { width: 15px; height: 15px; }
+    .issue-card.danger .issue-icon { background: var(--red-dim); color: var(--red); }
+    .issue-card.blue .issue-icon { background: var(--blue-dim); color: var(--blue); }
+    .issue-card.purple .issue-icon { background: rgba(196,161,230,.13); color: var(--purple); }
+    .issue-card strong { display: block; margin-top: 12px; font-size: 23px; line-height: 1; }
+    .issue-card .issue-name { display: block; margin-top: 5px; color: var(--text-2); font-size: 11px; }
+    .issue-card .issue-note { position: absolute; right: 13px; bottom: 14px; color: var(--text-3); font-size: 9px; }
+
+    .work-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, .9fr); gap: 12px; align-items: start; }
+    .panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+    .panel-head { min-height: 51px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+    .panel-head h3 { margin: 0; font-size: 13px; }
+    .panel-head .panel-meta { color: var(--text-3); font-size: 10px; }
+    .panel-head .panel-action { margin-left: auto; background: transparent; color: var(--mint); font-size: 10px; }
+    .job-list { padding: 3px 13px 8px; }
+    .job { display: grid; grid-template-columns: 27px minmax(0, 1fr) 105px; gap: 10px; align-items: center; min-height: 62px; border-bottom: 1px solid var(--line); }
+    .job:last-child { border-bottom: 0; }
+    .job-icon { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 6px; background: var(--blue-dim); color: var(--blue); }
+    .job-icon svg { width: 14px; height: 14px; }
+    .job-icon.scrape { background: var(--purple); color: #191020; }
+    .job-icon.scan { background: var(--mint-dim); color: var(--mint); }
+    .job-copy { min-width: 0; }
+    .job-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .job-copy small { display: block; margin-top: 3px; color: var(--text-3); font-size: 9px; }
+    .job-progress { justify-self: end; width: 105px; }
+    .job-progress .line { height: 4px; overflow: hidden; border-radius: 3px; background: var(--line); }
+    .job-progress .line i { display: block; width: 72%; height: 100%; background: var(--mint); }
+    .job-progress small { display: flex; justify-content: space-between; margin-top: 4px; color: var(--text-3); font-size: 9px; }
+    .activity-list { padding: 3px 14px 8px; }
+    .activity { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 9px; align-items: center; min-height: 52px; border-bottom: 1px solid var(--line); }
+    .activity:last-child { border-bottom: 0; }
+    .activity-icon { color: var(--text-3); }
+    .activity-icon svg { width: 14px; height: 14px; }
+    .activity-copy { min-width: 0; }
+    .activity-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
+    .activity-copy small, .activity time { color: var(--text-3); font-size: 9px; }
+
+    .library-health { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .library-card { padding: 13px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    .library-card-head { display: flex; align-items: center; gap: 8px; }
+    .library-card-head .status { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); }
+    .library-card.warn .status { background: var(--amber); }
+    .library-card h3 { margin: 0; font-size: 12px; }
+    .library-card .library-kind { margin-left: auto; color: var(--text-3); font-size: 9px; }
+    .library-path { margin: 9px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-family: Consolas, monospace; font-size: 9px; }
+    .library-card-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding-top: 9px; border-top: 1px solid var(--line); }
+    .library-card-stats span { display: block; color: var(--text-3); font-size: 9px; }
+    .library-card-stats strong { display: block; margin-top: 2px; font-size: 13px; }
+    .library-card .library-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; color: var(--text-3); font-size: 9px; }
+    .library-card .library-foot button { padding: 0; background: transparent; color: var(--mint); font-size: 9px; }
+
+    .media-panel { margin-top: 12px; }
+    [hidden] { display: none !important; }
+    .view-content { min-width: 0; }
+    .standalone-view { display: block; }
+    .view-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; background: var(--surface-2); }
+    .view-toolbar .toolbar-title { margin-right: 5px; font-size: 12px; font-weight: 700; }
+    .view-toolbar .toolbar-meta { color: var(--text-3); font-size: 11px; }
+    .view-toolbar .toolbar-spacer { flex: 1; }
+    .search-input { height: 31px; width: 205px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; outline: 0; background: var(--surface); color: var(--text); font-size: 12px; }
+    .search-input:focus { border-color: var(--mint); }
+    .explorer-filter-wrap { position: relative; }
+    .explorer-filter-button, .explorer-sort { height: 31px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text-2); font-size: 11px; }
+    .explorer-filter-button { display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; }
+    .explorer-filter-button:hover, .explorer-filter-button.active { border-color: var(--mint); color: var(--mint); }
+    .explorer-filter-button svg { width: 12px; height: 12px; }
+    .filter-count { min-width: 16px; height: 16px; display: inline-grid; place-items: center; border-radius: 8px; background: var(--mint); color: #06100b; font-size: 8px; font-weight: 800; }
+    .explorer-sort { min-width: 112px; padding: 0 25px 0 8px; outline: 0; }
+    .explorer-filter-popover { position: absolute; top: 35px; right: 0; z-index: 20; width: 235px; padding: 11px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); box-shadow: 0 16px 35px rgba(0,0,0,.24); }
+    .filter-popover-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 12px; font-weight: 750; }
+    .filter-popover-head button { padding: 0; background: transparent; color: var(--mint); font-size: 11px; }
+    .filter-group { padding: 8px 0; border-top: 1px solid var(--line); }
+    .filter-group > span { display: block; margin-bottom: 7px; color: var(--text-3); font-size: 11px; font-weight: 650; }
+    .filter-options { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 9px; }
+    .filter-options label { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; }
+    .filter-options input { accent-color: var(--mint); }
+    .explorer { display: grid; grid-template-columns: 220px minmax(0, 1fr) 255px; height: calc(100vh - var(--title-h) - var(--nav-h) - 227px); min-height: 510px; max-height: 890px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 var(--radius) var(--radius); background: var(--surface); overflow: hidden; }
+    .explorer.hide-tree { grid-template-columns: minmax(0, 1fr) 255px; }
+    .explorer.hide-tree .explorer-tree { display: none; }
+    .explorer.hide-inspector { grid-template-columns: 220px minmax(0, 1fr); }
+    .explorer.hide-inspector .explorer-inspector { display: none; }
+    .explorer.hide-tree.hide-inspector { grid-template-columns: minmax(0, 1fr); }
+    .explorer-tree { padding: 12px 9px; border-right: 1px solid var(--line); background: var(--surface-2); overflow: auto; }
+    .tree-heading { display: flex; align-items: center; justify-content: space-between; padding: 3px 7px 9px; color: var(--text-3); font-size: 12px; font-weight: 700; }
+    .tree-heading button { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; background: transparent; color: var(--text-3); }
+    .tree-heading button:hover { background: var(--surface-3); color: var(--mint); }
+    .tree-heading svg { width: 13px; height: 13px; }
+    .tree-row { width: 100%; min-height: 35px; display: flex; align-items: center; gap: 7px; padding: 0 7px; border-radius: 5px; background: transparent; color: var(--text-2); font-size: 12px; text-align: left; }
+    .tree-row:hover { background: var(--surface-3); color: var(--text); }
+    .tree-row.active { background: var(--mint-dim); color: var(--mint); }
+    .tree-row .tree-chevron { width: 12px; color: var(--text-3); }
+    .tree-row .tree-icon { width: 14px; color: var(--amber); }
+    .tree-row .tree-count { margin-left: auto; color: var(--text-3); font-size: 11px; }
+    .tree-indent { padding-left: 25px; }
+    .tree-indent.deep { padding-left: 43px; }
+    .explorer.virtual-scope .tree-indent { display: none; }
+    .explorer-center { min-width: 0; overflow: auto; }
+    .explorer-breadcrumb { display: flex; align-items: center; gap: 5px; min-height: 44px; padding: 0 13px; border-bottom: 1px solid var(--line); color: var(--text-2); font-size: 12px; }
+    .explorer-breadcrumb button { padding: 3px 5px; border-radius: 4px; background: transparent; color: var(--text-2); }
+    .explorer-breadcrumb button:hover { background: var(--surface-3); color: var(--mint); }
+    .explorer-breadcrumb svg { width: 12px; color: var(--text-3); }
+    .explorer-sourcebar { min-height: 47px; display: flex; align-items: center; gap: 4px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+    .source-tab { min-height: 33px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border-radius: 5px; background: transparent; color: var(--text-2); font-size: 12px; }
+    .source-tab:hover { background: var(--surface-3); color: var(--text); }
+    .source-tab.active { background: var(--mint-dim); color: var(--mint); }
+    .source-tab svg { width: 13px; height: 13px; }
+    .source-tab small { color: var(--text-3); font-size: 11px; }
+    .source-tab.active small { color: inherit; opacity: .75; }
+    .active-filter-strip { min-height: 36px; display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-bottom: 1px solid var(--line); color: var(--text-3); font-size: 11px; }
+    .active-filter-strip:empty { display: none; }
+    .active-filter-chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 4px; background: var(--mint-dim); color: var(--mint); }
+    .source-panel[hidden] { display: none !important; }
+    .source-context { min-height: 56px; display: flex; align-items: center; gap: 10px; padding: 9px 13px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--blue-dim) 58%, var(--surface)); }
+    .source-context > span { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 6px; background: var(--blue-dim); color: var(--blue); }
+    .source-context > span svg { width: 16px; height: 16px; }
+    .source-context strong { display: block; font-size: 12px; }
+    .source-context small { display: block; margin-top: 2px; color: var(--text-3); font-size: 11px; }
+    .source-context .button { margin-left: auto; }
+    .drop-import { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 72px; margin: 10px 12px; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 6px; background: color-mix(in srgb, var(--mint-dim) 45%, var(--surface)); transition: border-color .15s, background .15s; }
+    .drop-import:hover, .drop-import.is-dragging { border-color: var(--mint); background: var(--mint-dim); }
+    .drop-import-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 6px; background: var(--mint-dim); color: var(--mint); }
+    .drop-import-icon svg { width: 19px; height: 19px; }
+    .drop-import strong { display: block; font-size: 13px; }
+    .drop-import small { display: block; margin-top: 3px; color: var(--text-3); font-size: 11px; }
+    .drop-import .button { background: var(--mint); color: #06100b; font-weight: 800; }
+    .explorer-list { min-width: 620px; }
+    .explorer-list-head, .explorer-item { display: grid; grid-template-columns: 28px minmax(190px, 1.8fr) 110px 120px 110px; gap: 8px; align-items: center; padding: 0 13px; }
+    .explorer-list-head { min-height: 38px; border-bottom: 1px solid var(--line); color: var(--text-3); font-size: 11px; }
+    .explorer-item { min-height: 62px; border-bottom: 1px solid var(--line); color: var(--text-2); text-align: left; }
+    .explorer-item:hover, .explorer-item.selected { background: var(--surface-2); }
+    .explorer-item.selected { box-shadow: inset 2px 0 var(--mint); }
+    .explorer-item .item-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .explorer-item .item-name svg { width: 17px; height: 17px; flex: 0 0 auto; color: var(--amber); }
+    .explorer-item.file .item-name svg { color: var(--blue); }
+    .explorer-item.network .item-name svg { color: var(--mint); }
+    .explorer-item.missing .item-name svg { color: var(--amber); }
+    .explorer-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 12px; }
+    .explorer-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-size: 11px; }
+    .item-status { display: inline-flex; align-items: center; gap: 5px; color: var(--mint); font-size: 11px; }
+    .item-status.warn { color: var(--amber); }
+    .item-status.bad { color: var(--red); }
+    .item-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .item-tile-preview { display: none; }
+    .explorer-list.grid-view { min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); align-content: start; gap: 9px; padding: 12px; }
+    .explorer-list.grid-view .explorer-list-head { display: none; }
+    .explorer-list.grid-view .explorer-item { position: relative; display: block; min-height: 0; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+    .explorer-list.grid-view .explorer-item:hover, .explorer-list.grid-view .explorer-item.selected { border-color: var(--line-strong); background: var(--surface-3); }
+    .explorer-list.grid-view .explorer-item.selected { box-shadow: inset 0 0 0 1px var(--mint); }
+    .explorer-list.grid-view .explorer-item > span:first-child { position: absolute; top: 8px; left: 8px; z-index: 2; }
+    .explorer-list.grid-view .item-tile-preview { width: 100%; aspect-ratio: 16 / 9; display: grid; place-items: center; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--surface-3); color: var(--amber); }
+    .explorer-list.grid-view .item-tile-preview img { width: 100%; height: 100%; object-fit: cover; }
+    .explorer-list.grid-view .item-tile-preview svg { width: 33px; height: 33px; }
+    .explorer-list.grid-view .item-name { padding: 9px 10px 0; }
+    .explorer-list.grid-view .item-name svg { display: none; }
+    .explorer-list.grid-view .item-name strong { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-height: 30px; line-height: 1.45; }
+    .explorer-list.grid-view .explorer-item > small { display: block; margin: 3px 10px 0; }
+    .explorer-list.grid-view .explorer-item > small:nth-of-type(2) { display: none; }
+    .explorer-list.grid-view .item-status { margin: 8px 10px 10px; }
+    .explorer-statusbar { position: sticky; bottom: 0; z-index: 3; min-height: 35px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 94%, transparent); color: var(--text-3); font-size: 11px; backdrop-filter: blur(10px); }
+    .explorer-statusbar span:last-child { margin-left: auto; }
+    .explorer-layout-actions { display: flex; align-items: center; gap: 4px; }
+    .layout-icon, .view-switch { height: 29px; display: flex; align-items: center; padding: 2px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+    .layout-icon { width: 29px; display: grid; place-items: center; color: var(--text-3); }
+    .layout-icon:hover, .layout-icon.active { border-color: var(--mint); color: var(--mint); }
+    .layout-icon svg, .view-switch svg { width: 13px; height: 13px; }
+    .view-switch button { width: 25px; height: 23px; display: grid; place-items: center; border-radius: 3px; background: transparent; color: var(--text-3); }
+    .view-switch button.active { background: var(--surface-3); color: var(--mint); }
+    .explorer-inspector { padding: 15px; border-left: 1px solid var(--line); background: var(--surface-2); overflow: auto; }
+    .inspector-empty { display: grid; place-items: center; min-height: 260px; color: var(--text-3); text-align: center; font-size: 11px; }
+    .inspector-preview { width: 100%; height: 118px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-3); }
+    .inspector-preview img { width: 100%; height: 100%; object-fit: cover; }
+    .inspector-preview.folder svg { width: 42px; height: 42px; color: var(--amber); }
+    .inspector-title { margin: 12px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 700; }
+    .inspector-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); font-family: Consolas, monospace; font-size: 11px; }
+    .inspector-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 14px; padding: 11px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .inspector-meta span { display: block; color: var(--text-3); font-size: 11px; }
+    .inspector-meta strong { display: block; margin-top: 3px; color: var(--text-2); font-size: 12px; }
+    .inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 14px; }
+    .inspector-actions button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text-2); font-size: 11px; }
+    .inspector-actions button:hover { border-color: var(--mint); color: var(--mint); }
+    .inspector-actions .detail-action { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--mint) 48%, var(--line)); background: var(--mint-dim); color: var(--mint); font-weight: 700; }
+    .inspector-actions button.danger:hover { border-color: var(--red); color: var(--red); }
+    .inspector-actions svg { width: 12px; height: 12px; }
+    .source-list { display: grid; gap: 6px; margin-top: 12px; }
+    .source-row { display: grid; grid-template-columns: 20px minmax(0,1fr) auto; align-items: center; gap: 7px; padding: 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+    .source-row > svg { width: 14px; color: var(--mint); }
+    .source-row strong, .source-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .source-row strong { font-size: 12px; }
+    .source-row small { margin-top: 2px; color: var(--text-3); font-size: 11px; }
+    .source-row em { color: var(--mint); font-size: 11px; font-style: normal; }
+    .issue-table, .history-table { width: 100%; border-collapse: collapse; }
+    .issue-table th, .issue-table td, .history-table th, .history-table td { height: 50px; padding: 7px 12px; border-bottom: 1px solid var(--line); text-align: left; font-size: 10px; }
+    .issue-table th, .history-table th { height: 35px; color: var(--text-3); font-size: 9px; font-weight: 600; }
+    .issue-table tr:hover td, .history-table tr:hover td { background: var(--surface-2); }
+    .issue-name-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .issue-thumb { width: 25px; height: 35px; overflow: hidden; border-radius: 3px; background: var(--surface-3); }
+    .issue-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .issue-name-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag-admin { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 470px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+    .tag-groups { padding: 12px 9px; border-right: 1px solid var(--line); background: var(--surface-2); }
+    .tag-group { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 9px; border-radius: 5px; color: var(--text-2); font-size: 10px; }
+    .tag-group.active, .tag-group:hover { background: var(--mint-dim); color: var(--mint); }
+    .tag-group span:last-child { margin-left: auto; color: var(--text-3); font-size: 9px; }
+    .tag-group svg { width: 14px; }
+    .tag-content { padding: 14px; }
+    .tag-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+    .tag-card { min-height: 83px; padding: 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+    .tag-card-head { display: flex; align-items: center; gap: 6px; }
+    .tag-card-head i { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); }
+    .tag-card-head strong { font-size: 10px; }
+    .tag-card small { display: block; margin-top: 10px; color: var(--text-3); font-size: 9px; }
+    .trash-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    .trash-item { display: grid; grid-template-columns: 45px minmax(0, 1fr) auto; gap: 9px; align-items: center; min-height: 70px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+    .trash-item img { width: 42px; height: 54px; object-fit: cover; border-radius: 4px; }
+    .trash-item strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+    .trash-item small { display: block; margin-top: 3px; color: var(--text-3); font-size: 9px; }
+    .trash-item button { height: 25px; padding: 0 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--text-2); font-size: 9px; }
+    .trash-item button:hover { border-color: var(--mint); color: var(--mint); }
+    .task-board { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(250px, .7fr); gap: 12px; }
+    .task-board .panel { min-height: 410px; }
+    .task-detail { padding: 15px; }
+    .task-detail h3 { margin: 0; font-size: 13px; }
+    .task-detail p { margin: 6px 0 15px; color: var(--text-3); font-size: 10px; }
+    .task-detail .detail-line { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--text-2); font-size: 10px; }
+    .task-detail .detail-line strong { color: var(--text); }
+    @media (max-width: 1240px) { .explorer { grid-template-columns: 185px minmax(0, 1fr); } .explorer-inspector { display: none; } .tag-admin { grid-template-columns: 200px minmax(0, 1fr); } }
+    @media (max-width: 760px) { .explorer { grid-template-columns: 1fr; } .explorer-tree { display: none; } .tag-admin { grid-template-columns: 1fr; } .tag-groups { display: flex; gap: 5px; overflow: auto; border-right: 0; border-bottom: 1px solid var(--line); } .tag-group { min-width: 105px; } .tag-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .task-board { grid-template-columns: 1fr; } .trash-list { grid-template-columns: 1fr; } }
+    @media (max-width: 620px) { .drop-import { grid-template-columns: 36px minmax(0, 1fr); } .drop-import .button { grid-column: 1 / -1; width: 100%; } }
+    .media-toolbar { display: flex; align-items: center; gap: 7px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+    .filter-chip { height: 27px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text-2); font-size: 10px; }
+    .filter-chip.active { border-color: var(--mint); background: var(--mint-dim); color: var(--mint); }
+    .filter-chip svg { width: 12px; height: 12px; }
+    .toolbar-spacer { flex: 1; }
+    .table-density { display: flex; padding: 2px; border: 1px solid var(--line); border-radius: 5px; }
+    .table-density button { width: 25px; height: 23px; display: grid; place-items: center; border-radius: 3px; background: transparent; color: var(--text-3); }
+    .table-density button.active { background: var(--surface-3); color: var(--mint); }
+    .table-density svg { width: 13px; height: 13px; }
+    .media-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .media-table th { height: 35px; padding: 0 10px; border-bottom: 1px solid var(--line); color: var(--text-3); font-size: 9px; font-weight: 600; text-align: left; }
+    .media-table td { height: 67px; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    .media-table tr:hover td { background: var(--surface-2); }
+    .media-table .check { width: 36px; text-align: center; }
+    .media-table .asset { width: 34%; }
+    .media-table .source { width: 16%; }
+    .media-table .metadata { width: 15%; }
+    .media-table .playback { width: 16%; }
+    .media-table .actions { width: 108px; }
+    .asset-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .thumb { width: 34px; height: 48px; flex: 0 0 auto; overflow: hidden; border-radius: 4px; background: var(--surface-3); }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .asset-copy { min-width: 0; }
+    .asset-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .asset-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; color: var(--text-3); font-size: 9px; }
+    .type-label { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 4px; background: var(--blue-dim); color: var(--blue); font-size: 9px; }
+    .type-label.tv { background: var(--purple); color: #20152a; }
+    .type-label.restricted { background: var(--red-dim); color: var(--red); }
+    .status-stack { display: grid; gap: 4px; }
+    .status-line { display: flex; align-items: center; gap: 5px; color: var(--text-2); font-size: 9px; }
+    .status-line::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--mint); }
+    .status-line.warn::before { background: var(--amber); }
+    .status-line.bad::before { background: var(--red); }
+    .action-row { display: flex; justify-content: flex-end; gap: 3px; }
+    .action-row button { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 5px; background: transparent; color: var(--text-3); }
+    .action-row button:hover { background: var(--surface-3); color: var(--mint); }
+    .action-row svg { width: 13px; height: 13px; }
+    input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--mint); }
+
+    .bulk-bar { position: fixed; left: calc(var(--side-w) + 28px); right: 28px; bottom: 22px; z-index: 20; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 10px 8px 14px; border: 1px solid var(--line-strong); border-radius: 8px; background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(18px); transform: translateY(130%); transition: transform .22s cubic-bezier(.16,1,.3,1); }
+    .bulk-bar.show { transform: none; }
+    .bulk-bar strong { font-size: 11px; }
+    .bulk-bar span { color: var(--text-3); font-size: 10px; }
+    .bulk-actions { display: flex; gap: 5px; margin-left: auto; }
+    .bulk-actions button { height: 29px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); color: var(--text-2); font-size: 10px; }
+    .bulk-actions button:hover { border-color: var(--mint); color: var(--mint); }
+    .bulk-actions button.danger:hover { border-color: var(--red); color: var(--red); }
+    .bulk-actions svg { width: 12px; height: 12px; }
+
+    .drawer-backdrop { position: fixed; inset: 0; z-index: 40; display: none; background: rgba(3, 6, 5, .62); backdrop-filter: blur(4px); }
+    .drawer-backdrop.open { display: block; }
+    .drawer { position: fixed; top: var(--title-h); right: 0; bottom: 0; z-index: 41; width: min(470px, 92vw); padding: 19px; overflow: auto; border-left: 1px solid var(--line-strong); background: var(--surface); box-shadow: -20px 0 60px rgba(0, 0, 0, .3); transform: translateX(105%); transition: transform .24s cubic-bezier(.16,1,.3,1); }
+    .drawer.open { transform: none; }
+    .drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
+    .drawer-head h2 { margin: 0; font-size: 17px; }
+    .drawer-head p { margin: 4px 0 0; color: var(--text-3); font-size: 10px; }
+    .drawer-close { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 5px; background: var(--surface-2); color: var(--text-2); }
+    .drawer-close svg { width: 14px; }
+    .drawer-section { margin-top: 18px; }
+    .drawer-section h3 { margin: 0 0 9px; font-size: 11px; }
+    .impact-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--text-2); font-size: 10px; }
+    .impact-row strong { color: var(--text); font-size: 12px; }
+    .preview-list { overflow: hidden; border: 1px solid var(--line); border-radius: 6px; }
+    .preview-item { display: grid; grid-template-columns: 35px minmax(0, 1fr) 25px; align-items: center; gap: 8px; min-height: 53px; padding: 6px 9px; border-bottom: 1px solid var(--line); }
+    .preview-item:last-child { border-bottom: 0; }
+    .preview-item img { width: 28px; height: 39px; object-fit: cover; border-radius: 3px; }
+    .preview-item strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+    .preview-item small { display: block; margin-top: 2px; color: var(--text-3); font-size: 9px; }
+    .preview-item .checkmark { color: var(--mint); }
+    .drawer-footer { display: flex; justify-content: flex-end; gap: 7px; margin-top: 22px; }
+
+    .toast { position: fixed; right: 20px; bottom: 20px; z-index: 60; padding: 10px 13px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text-2); box-shadow: var(--shadow); opacity: 0; transform: translateY(7px); pointer-events: none; transition: .2s; }
+    .toast.show { opacity: 1; transform: none; }
+
+    .operation-modal { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 18px; background: rgba(3, 6, 5, .66); backdrop-filter: blur(5px); }
+    .operation-modal[hidden] { display: none; }
+    .operation-dialog { width: min(470px, 100%); overflow: hidden; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); box-shadow: var(--shadow); }
+    .operation-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 18px 18px 14px; border-bottom: 1px solid var(--line); }
+    .operation-head h2 { margin: 0; font-size: 16px; }
+    .operation-head p { margin: 4px 0 0; color: var(--text-3); font-size: 10px; }
+    .operation-close { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 5px; background: var(--surface-2); color: var(--text-2); }
+    .operation-close:hover { background: var(--surface-3); color: var(--text); }
+    .operation-close svg { width: 14px; height: 14px; }
+    .operation-body { padding: 16px 18px 4px; }
+    .operation-context { display: flex; align-items: center; gap: 9px; min-height: 49px; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+    .operation-context svg { width: 17px; height: 17px; color: var(--amber); }
+    .operation-context strong { display: block; font-size: 11px; }
+    .operation-context small { display: block; margin-top: 2px; overflow: hidden; color: var(--text-3); text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; font-size: 9px; }
+    .operation-fields { display: grid; gap: 11px; margin-top: 14px; }
+    .operation-fields label { display: grid; gap: 5px; color: var(--text-2); font-size: 10px; }
+    .operation-fields input, .operation-fields select { width: 100%; height: 32px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; outline: 0; background: var(--surface-2); color: var(--text); font-size: 10px; }
+    .operation-fields input:focus, .operation-fields select:focus { border-color: var(--mint); }
+    .operation-note { margin: 13px 0 0; padding: 9px 10px; border-left: 2px solid var(--amber); background: var(--amber-dim); color: var(--text-2); font-size: 10px; }
+    .operation-note.danger { border-left-color: var(--red); background: var(--red-dim); }
+    .operation-footer { display: flex; justify-content: flex-end; gap: 7px; padding: 16px 18px 18px; }
+    .operation-footer .button.danger { border-color: var(--red); background: var(--red); color: #21090b; font-weight: 800; }
+    .explorer-bulk-bar { left: calc(var(--side-w) + 28px); }
+    .explorer-bulk-bar strong { color: var(--mint); }
+
+    @media (max-width: 1180px) {
+      :root { --side-w: 210px; }
+      .health-strip { grid-template-columns: 1.5fr repeat(2, 1fr); }
+      .health-stat:nth-child(n+4) { display: none; }
+      .issue-grid { grid-template-columns: repeat(2, 1fr); }
+      .library-health { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 850px) {
+      :root { --side-w: 58px; }
+      .brand { width: 30px; }
+      .brand span, .product-tabs, .sidebar .side-label, .sidebar .side-item span, .sidebar .library-mini { display: none; }
+      .sidebar { padding: 15px 7px; }
+      .side-item { justify-content: center; padding: 0; }
+      .side-item svg { width: 17px; height: 17px; }
+      .side-item .count { display: grid; position: absolute; margin: -19px -19px 0 0; min-width: 15px; height: 15px; padding: 0; font-size: 8px; }
+      .nav { gap: 10px; }
+      .search-trigger { width: 34px; padding: 0 9px; }
+      .search-trigger span, .search-trigger kbd { display: none; }
+      .work-grid { grid-template-columns: 1fr; }
+      .media-table .metadata, .media-table .playback { display: none; }
+      .media-table .source { width: 20%; }
+      .bulk-bar { left: 70px; right: 12px; }
+    }
+    @media (max-width: 620px) {
+      :root { --title-h: 0px; --side-w: 0px; }
+      .titlebar, .sidebar { display: none; }
+      .app { grid-template-rows: var(--nav-h) 1fr; grid-template-columns: 1fr; }
+      .nav { grid-row: 1; padding: 0 10px; }
+      main { grid-row: 2; padding: 18px 12px 45px; }
+      .page-head { align-items: center; }
+      h1 { font-size: 22px; }
+      .subhead { display: none; }
+      .head-actions .button:first-child { display: none; }
+      .health-strip { grid-template-columns: repeat(2, 1fr); }
+      .health-main { grid-column: 1 / -1; }
+      .issue-grid { grid-template-columns: repeat(2, 1fr); }
+      .issue-card { min-height: 105px; }
+      .media-toolbar { overflow: auto; }
+      .media-table { min-width: 640px; }
+      .media-panel { overflow-x: auto; }
+      .bulk-actions button span { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar">
+      <div class="app-caption"><span class="app-mark"><i data-lucide="play"></i></span><span>vitoice</span></div>
+      <span class="drag-space"></span>
+      <div class="window-actions">
+        <button data-window="最小化" aria-label="最小化"><i data-lucide="minus"></i></button>
+        <button data-window="最大化" aria-label="最大化"><i data-lucide="square"></i></button>
+        <button class="close" data-window="关闭" aria-label="关闭"><i data-lucide="x"></i></button>
+      </div>
+    </header>
+
+    <nav class="nav">
+      <button class="brand" data-toast="返回媒体首页"><span class="brand-mark"><i data-lucide="play"></i></span><span>vitoice</span></button>
+      <div class="product-tabs">
+        <button class="product-tab" data-toast="媒体页是观看中心">媒体</button>
+        <button class="product-tab active">管理</button>
+        <button class="product-tab" data-toast="设置页是系统配置">设置</button>
+      </div>
+      <button class="search-trigger" id="searchButton"><i data-lucide="search"></i><span>搜索媒体、路径、演员、标签或问题</span><kbd>Ctrl K</kbd></button>
+      <div class="nav-actions">
+        <button class="icon-button" id="themeButton" title="切换主题"><i data-lucide="sun-moon"></i></button>
+        <button class="icon-button task-dot" id="taskButton" title="打开任务队列"><i data-lucide="list-checks"></i></button>
+      </div>
+    </nav>
+
+    <aside class="sidebar">
+      <div class="side-group">
+        <div class="side-label">工作区</div>
+        <button class="side-item" data-section="dashboard"><i data-lucide="layout-dashboard"></i><span>资产概览</span></button>
+        <button class="side-item active" data-section="files"><i data-lucide="folder-tree"></i><span>文件与路径</span><span class="core-tag">核心</span><b class="count danger">12</b></button>
+        <button class="side-item" data-section="issues"><i data-lucide="triangle-alert"></i><span>问题中心</span><b class="count warn">40</b></button>
+        <button class="side-item" data-section="assets"><i data-lucide="table-2"></i><span>媒体资产</span><b class="count">794</b></button>
+        <button class="side-item" data-section="metadata"><i data-lucide="scan-search"></i><span>元数据与刮削</span><b class="count warn">25</b></button>
+        <button class="side-item" data-section="tags"><i data-lucide="tags"></i><span>标签治理</span></button>
+        <button class="side-item" data-section="trash"><i data-lucide="trash-2"></i><span>回收站</span><b class="count">6</b></button>
+      </div>
+      <div class="side-rule"></div>
+      <div class="side-group">
+        <div class="side-label">运行状态</div>
+        <button class="side-item" data-section="tasks"><i data-lucide="list-checks"></i><span>任务队列</span><b class="count warn">3</b></button>
+        <button class="side-item" data-section="history"><i data-lucide="history"></i><span>操作记录</span></button>
+      </div>
+      <div class="side-rule"></div>
+      <div class="side-label">资源库状态</div>
+      <div class="library-mini"><div class="library-mini-head"><i class="library-dot"></i><span>电影库</span></div><small>412 项 · 已同步</small><div class="mini-line"><i></i></div></div>
+      <div class="library-mini warn"><div class="library-mini-head"><i class="library-dot"></i><span>电视剧库</span></div><small>315 项 · 12 个待处理</small><div class="mini-line"><i></i></div></div>
+    </aside>
+
+    <main>
+      <section class="page-head">
+        <div>
+          <div class="eyebrow"><i data-lucide="shield-check"></i>Media operations</div>
+          <h1 id="pageTitle">文件与路径</h1>
+          <p class="subhead" id="pageSubtitle">直接浏览和管理系统文件夹与媒体文件</p>
+        </div>
+        <div class="head-actions">
+          <button class="button" data-toast="健康检查任务已加入队列"><i data-lucide="stethoscope"></i>健康检查</button>
+          <button class="button primary" data-toast="扫描任务已加入队列"><i data-lucide="scan-line"></i>扫描资源库</button>
+        </div>
+      </section>
+
+      <section class="health-strip" id="healthStrip" hidden>
+        <div class="health-main"><div class="health-ring"><strong>92%</strong></div><div class="health-copy"><strong>媒体库状态良好</strong><p>上次完整检查：今天 09:42 · 发现 40 个可处理问题</p></div></div>
+        <div class="health-stat"><span class="label">媒体资产</span><strong>794</strong><small>电影 412 · 电视剧 315</small></div>
+        <div class="health-stat"><span class="label">可播放率</span><strong class="good">98.5%</strong><small>12 个本地文件缺失</small></div>
+        <div class="health-stat"><span class="label">元数据完整</span><strong class="warn">96.8%</strong><small>25 个待刮削</small></div>
+        <div class="health-stat"><span class="label">封面完整</span><strong class="bad">97.9%</strong><small>17 个待补齐</small></div>
+      </section>
+
+      <div class="view-content" id="dashboardContent" hidden>
+      <div id="dashboardView">
+        <div class="section-head"><h2>待处理问题</h2><span class="muted">按影响观看和管理的优先级排列</span><button class="more" data-section-link="issues">查看全部问题 <i data-lucide="arrow-right"></i></button></div>
+        <section class="issue-grid">
+          <button class="issue-card danger" data-issue="missing"><span class="issue-icon"><i data-lucide="file-x-2"></i></span><strong>12</strong><span class="issue-name">文件缺失</span><span class="issue-note">影响播放</span></button>
+          <button class="issue-card" data-issue="poster"><span class="issue-icon"><i data-lucide="image-off"></i></span><strong>17</strong><span class="issue-name">缺少海报或缩略图</span><span class="issue-note">影响识别</span></button>
+          <button class="issue-card blue" data-issue="metadata"><span class="issue-icon"><i data-lucide="scan-search"></i></span><strong>25</strong><span class="issue-name">元数据待刮削</span><span class="issue-note">可批量处理</span></button>
+          <button class="issue-card purple" data-issue="duplicate"><span class="issue-icon"><i data-lucide="copy-check"></i></span><strong>3 组</strong><span class="issue-name">疑似重复媒体</span><span class="issue-note">需要确认</span></button>
+        </section>
+
+        <div class="section-head"><h2>运行中的工作</h2><span class="muted">长任务可观察、可取消、可追溯</span><button class="more" id="openTasks">打开任务队列 <i data-lucide="arrow-right"></i></button></div>
+        <section class="work-grid">
+          <article class="panel"><div class="panel-head"><h3>当前任务</h3><span class="panel-meta">3 个运行中 · 1 个等待</span><button class="panel-action" id="pauseAll">暂停全部</button></div><div class="job-list">
+            <div class="job"><span class="job-icon scan"><i data-lucide="scan-line"></i></span><div class="job-copy"><strong>扫描 · 电视剧库</strong><small>正在检查文件变化 · 315 / 315 项</small></div><div class="job-progress"><div class="line"><i style="width:84%"></i></div><small><span>84%</span><span>约 2 分钟</span></small></div></div>
+            <div class="job"><span class="job-icon scrape"><i data-lucide="wand-sparkles"></i></span><div class="job-copy"><strong>批量刮削 · 25 个媒体</strong><small>正在匹配《无耻之徒》· TMDB</small></div><div class="job-progress"><div class="line"><i style="width:48%"></i></div><small><span>12 / 25</span><span>约 4 分钟</span></small></div></div>
+            <div class="job"><span class="job-icon"><i data-lucide="image"></i></span><div class="job-copy"><strong>重建封面 · 17 个媒体</strong><small>等待处理 · 优先补齐电视剧封面</small></div><div class="job-progress"><div class="line"><i style="width:0%"></i></div><small><span>等待中</span><span>—</span></small></div></div>
+          </div></article>
+          <article class="panel"><div class="panel-head"><h3>最近活动</h3><button class="panel-action" data-section-link="history">查看记录 <i data-lucide="arrow-right"></i></button></div><div class="activity-list">
+            <div class="activity"><span class="activity-icon"><i data-lucide="check-circle-2"></i></span><div class="activity-copy"><strong>扫描完成 · 电影库</strong><small>新增 4 · 更新 9 · 未发现异常</small></div><time>09:42</time></div>
+            <div class="activity"><span class="activity-icon"><i data-lucide="tags"></i></span><div class="activity-copy"><strong>批量添加标签 · 8 个媒体</strong><small>添加“科幻 / 经典”</small></div><time>09:18</time></div>
+            <div class="activity"><span class="activity-icon"><i data-lucide="folder-output"></i></span><div class="activity-copy"><strong>移动资源 · 2 个媒体</strong><small>电影库 / 待整理 → 电影库 / 2024</small></div><time>昨天</time></div>
+          </div></article>
+        </section>
+
+        <div class="section-head"><h2>资源库健康</h2><span class="muted">配置仍在设置页，这里只处理运行状态和异常</span><button class="more" data-toast="资源库配置属于设置页">前往资源库设置 <i data-lucide="arrow-right"></i></button></div>
+        <section class="library-health">
+          <article class="library-card"><div class="library-card-head"><i class="status"></i><h3>电影库</h3><span class="library-kind">电影</span></div><div class="library-path">D:\Media\Movies</div><div class="library-card-stats"><div><span>媒体</span><strong>412</strong></div><div><span>缺失</span><strong>0</strong></div><div><span>占用</span><strong>2.8 TB</strong></div></div><div class="library-foot"><span>扫描于 09:42</span><button data-toast="已打开电影库筛选">查看媒体 <i data-lucide="arrow-right"></i></button></div></article>
+          <article class="library-card warn"><div class="library-card-head"><i class="status"></i><h3>电视剧库</h3><span class="library-kind">电视剧</span></div><div class="library-path">D:\Media\TV Shows</div><div class="library-card-stats"><div><span>媒体</span><strong>315</strong></div><div><span>缺失</span><strong style="color:var(--amber)">12</strong></div><div><span>占用</span><strong>4.1 TB</strong></div></div><div class="library-foot"><span>扫描进行中 · 84%</span><button data-toast="已打开电视剧库问题">处理问题 <i data-lucide="arrow-right"></i></button></div></article>
+          <article class="library-card"><div class="library-card-head"><i class="status"></i><h3>图片与音频</h3><span class="library-kind">待扩展</span></div><div class="library-path">E:\Media\Other</div><div class="library-card-stats"><div><span>图片</span><strong>78</strong></div><div><span>音频</span><strong>12</strong></div><div><span>状态</span><strong style="color:var(--text-3)">未检查</strong></div></div><div class="library-foot"><span>多媒体治理策略未配置</span><button data-toast="图片和音频管理将在后续阶段开放">查看规划 <i data-lucide="arrow-right"></i></button></div></article>
+        </section>
+      </div>
+
+      <section class="panel media-panel" id="assetView" data-view-panel="assets">
+        <div class="panel-head"><h3>媒体资产治理</h3><span class="panel-meta" id="resultLabel">794 项媒体 · 当前显示 6 项</span><button class="panel-action" data-toast="已导出当前筛选结果"><i data-lucide="download"></i>导出结果</button></div>
+        <div class="media-toolbar"><button class="filter-chip active" data-filter="all"><i data-lucide="list-filter"></i>全部资产</button><button class="filter-chip" data-filter="problem"><i data-lucide="triangle-alert"></i>存在问题 <b>40</b></button><button class="filter-chip" data-filter="missing"><i data-lucide="file-x-2"></i>文件缺失 <b>12</b></button><button class="filter-chip" data-filter="unmatched"><i data-lucide="scan-search"></i>待处理 <b>25</b></button><span class="toolbar-spacer"></span><button class="filter-chip" id="sortButton"><i data-lucide="arrow-down-up"></i>最近更新</button><div class="table-density"><button class="active" title="表格"><i data-lucide="rows-3"></i></button><button title="紧凑"><i data-lucide="list"></i></button></div></div>
+        <table class="media-table"><thead><tr><th class="check"><input type="checkbox" id="selectAll"></th><th class="asset">资产</th><th class="source">类型 / 资源库</th><th class="metadata">元数据</th><th class="playback">文件与播放</th><th class="actions">操作</th></tr></thead><tbody>
+          <tr data-row data-problem="false"><td class="check"><input type="checkbox" class="row-check"></td><td class="asset"><div class="asset-cell"><div class="thumb"><img src="backend/data/posters/10.jpg" alt=""></div><div class="asset-copy"><strong>天空之城</strong><small>Castle.in.the.Sky.1986.1080p.mkv</small></div></div></td><td><span class="type-label">电影</span><small class="asset-copy"><small>电影库</small></small></td><td><div class="status-stack"><span class="status-line">TMDB 已匹配</span><span class="status-line">海报完整</span></div></td><td><div class="status-stack"><span class="status-line">本地文件正常</span><span class="status-line">已观看</span></div></td><td><div class="action-row"><button title="播放" data-toast="播放入口属于媒体页"><i data-lucide="play"></i></button><button title="编辑元数据" data-toast="打开元数据编辑"><i data-lucide="pencil"></i></button><button title="更多"><i data-lucide="more-horizontal"></i></button></div></td></tr>
+          <tr data-row data-problem="true"><td class="check"><input type="checkbox" class="row-check"></td><td class="asset"><div class="asset-cell"><div class="thumb"><img src="backend/data/posters/23.jpg" alt=""></div><div class="asset-copy"><strong>庆余年 第二季 · 第 18 集</strong><small>Qing.Yu.Nian.S02E18.2160p.mkv</small></div></div></td><td><span class="type-label tv">电视剧</span><small class="asset-copy"><small>电视剧库</small></small></td><td><div class="status-stack"><span class="status-line">TMDB 已匹配</span><span class="status-line warn">缺少季海报</span></div></td><td><div class="status-stack"><span class="status-line warn">文件路径已变化</span><span class="status-line">可播放</span></div></td><td><div class="action-row"><button title="定位问题" data-toast="已定位到文件与路径问题"><i data-lucide="locate-fixed"></i></button><button title="修复" data-toast="已打开修复预览"><i data-lucide="wrench"></i></button><button title="更多"><i data-lucide="more-horizontal"></i></button></div></td></tr>
+          <tr data-row data-problem="true"><td class="check"><input type="checkbox" class="row-check"></td><td class="asset"><div class="asset-cell"><div class="thumb"><img src="backend/data/posters/47.jpg" alt=""></div><div class="asset-copy"><strong>无耻之徒</strong><small>Shameless.US.S01E02.1080p.mkv</small></div></div></td><td><span class="type-label tv">电视剧</span><small class="asset-copy"><small>电视剧库</small></small></td><td><div class="status-stack"><span class="status-line warn">待刮削</span><span class="status-line bad">无封面</span></div></td><td><div class="status-stack"><span class="status-line">本地文件正常</span><span class="status-line">未观看</span></div></td><td><div class="action-row"><button title="匹配元数据" data-toast="已打开刮削预览"><i data-lucide="wand-sparkles"></i></button><button title="编辑" data-toast="打开元数据编辑"><i data-lucide="pencil"></i></button><button title="更多"><i data-lucide="more-horizontal"></i></button></div></td></tr>
+          <tr data-row data-problem="false"><td class="check"><input type="checkbox" class="row-check"></td><td class="asset"><div class="asset-cell"><div class="thumb"><img src="backend/data/posters/48.jpg" alt=""></div><div class="asset-copy"><strong>红猪</strong><small>Porco.Rosso.1992.1080p.mkv</small></div></div></td><td><span class="type-label">电影</span><small class="asset-copy"><small>电影库</small></small></td><td><div class="status-stack"><span class="status-line">TMDB 已匹配</span><span class="status-line">海报完整</span></div></td><td><div class="status-stack"><span class="status-line">本地文件正常</span><span class="status-line warn">播放中断</span></div></td><td><div class="action-row"><button title="定位播放记录" data-toast="已打开播放记录"><i data-lucide="clock-3"></i></button><button title="编辑" data-toast="打开元数据编辑"><i data-lucide="pencil"></i></button><button title="更多"><i data-lucide="more-horizontal"></i></button></div></td></tr>
+          <tr data-row data-problem="true"><td class="check"><input type="checkbox" class="row-check"></td><td class="asset"><div class="asset-cell"><div class="thumb"><img src="backend/data/posters/49.jpg" alt=""></div><div class="asset-copy"><strong>金刚狼 3：殊死一战</strong><small>Logan.2017.2160p.mkv</small></div></div></td><td><span class="type-label restricted">受限内容</span><small class="asset-copy"><small>私人库</small></small></td><td><div class="status-stack"><span class="status-line">手动信息</span><span class="status-line">封面完整</span></div></td><td><div class="status-stack"><span class="status-line bad">本地文件缺失</span><span class="status-line">网络源可用</span></div></td><td><div class="action-row"><button title="修复路径" data-toast="已打开路径修复"><i data-lucide="folder-search"></i></button><button title="编辑" data-toast="打开元数据编辑"><i data-lucide="pencil"></i></button><button title="更多"><i data-lucide="more-horizontal"></i></button></div></td></tr>
+          <tr data-row data-problem="false"><td class="check"><input type="checkbox" class="row-check"></td><td class="asset"><div class="asset-cell"><div class="thumb"><img src="backend/data/posters/50.jpg" alt=""></div><div class="asset-copy"><strong>名侦探柯南：漆黑的追踪者</strong><small>Detective.Conan.2009.1080p.mkv</small></div></div></td><td><span class="type-label">电影</span><small class="asset-copy"><small>电影库</small></small></td><td><div class="status-stack"><span class="status-line">TMDB 已匹配</span><span class="status-line">海报完整</span></div></td><td><div class="status-stack"><span class="status-line">本地文件正常</span><span class="status-line">未观看</span></div></td><td><div class="action-row"><button title="编辑" data-toast="打开元数据编辑"><i data-lucide="pencil"></i></button><button title="更多"><i data-lucide="more-horizontal"></i></button></div></td></tr>
+        </tbody></table>
+      </section>
+      </div>
+
+      <section class="view-content standalone-view" data-view-panel="issues" hidden>
+        <div class="section-head"><h2>问题中心</h2><span class="muted">把异常按影响范围转成可以执行的处理队列</span><button class="button primary" data-toast="已将全部低风险问题加入任务队列"><i data-lucide="wand-sparkles"></i>批量处理可修复项</button></div>
+        <div class="view-toolbar"><span class="toolbar-title">问题筛选</span><button class="filter-chip active" data-issue-filter="all">全部问题 <b>40</b></button><button class="filter-chip" data-issue-filter="critical">影响播放 <b>12</b></button><button class="filter-chip" data-issue-filter="metadata">元数据质量 <b>25</b></button><button class="filter-chip" data-issue-filter="asset">资产完整性 <b>20</b></button><span class="toolbar-spacer"></span><span class="toolbar-meta">按优先级排序 · 最近更新在前</span></div>
+        <div class="panel" style="border-top:0;border-radius:0 0 var(--radius) var(--radius);overflow:auto"><table class="issue-table"><thead><tr><th>问题</th><th>类型</th><th>影响</th><th>建议动作</th><th>发现时间</th><th>操作</th></tr></thead><tbody>
+          <tr><td><div class="issue-name-cell"><span class="issue-thumb"><img src="backend/data/posters/49.jpg" alt=""></span><strong>金刚狼 3：殊死一战</strong></div></td><td><span class="type-label restricted">文件缺失</span></td><td><span class="status-line bad">本地不可播放</span></td><td>定位路径 / 恢复网络源</td><td>今天 09:42</td><td><button class="button" data-toast="已打开文件路径定位">处理</button></td></tr>
+          <tr><td><div class="issue-name-cell"><span class="issue-thumb"><img src="backend/data/posters/47.jpg" alt=""></span><strong>无耻之徒 · 第 2 集</strong></div></td><td><span class="type-label tv">缺少封面</span></td><td><span class="status-line warn">影响识别</span></td><td>从系列继承海报</td><td>今天 09:39</td><td><button class="button" data-toast="已打开封面继承预览">预览</button></td></tr>
+          <tr><td><div class="issue-name-cell"><span class="issue-thumb"><img src="backend/data/posters/23.jpg" alt=""></span><strong>庆余年 第二季 · 第 18 集</strong></div></td><td><span class="type-label tv">路径变化</span></td><td><span class="status-line warn">需确认文件</span></td><td>重新关联路径</td><td>今天 09:35</td><td><button class="button" data-toast="已打开路径变更对比">对比</button></td></tr>
+          <tr><td><div class="issue-name-cell"><span class="issue-thumb"><img src="backend/data/posters/10.jpg" alt=""></span><strong>天空之城</strong></div></td><td><span class="type-label">重复媒体</span></td><td><span class="status-line warn">占用额外空间</span></td><td>保留最佳版本</td><td>昨天 18:21</td><td><button class="button" data-toast="已打开重复媒体组">查看组</button></td></tr>
+        </tbody></table></div>
+      </section>
+
+      <section class="view-content standalone-view" data-view-panel="files">
+        <div class="section-head"><h2>文件与路径</h2><span class="muted">资源管理器 · 直接管理系统文件夹和媒体文件</span><button class="button primary" data-single-import><i data-lucide="file-up"></i>导入单个文件</button><input id="singleFileInput" type="file" accept="video/*,.mkv,.mp4,.mov,.avi,.webm" hidden></div>
+        <div class="view-toolbar"><span class="toolbar-title">资源浏览器</span><span class="toolbar-meta" id="explorerScopeMeta">电视剧库 / 2024</span><span class="toolbar-spacer"></span><input class="search-input" id="explorerSearch" placeholder="搜索名称、路径或来源" aria-label="搜索名称、路径或来源"><div class="explorer-filter-wrap"><button class="explorer-filter-button" id="explorerFilterButton" type="button"><i data-lucide="list-filter"></i>筛选<span class="filter-count" id="explorerFilterCount" hidden>0</span></button><div class="explorer-filter-popover" id="explorerFilterPopover" hidden><div class="filter-popover-head"><span>筛选当前来源</span><button type="button" id="clearExplorerFilters">全部清除</button></div><div class="filter-group"><span>对象</span><div class="filter-options"><label><input type="checkbox" data-explorer-filter="folder">文件夹</label><label><input type="checkbox" data-explorer-filter="media">媒体</label></div></div><div class="filter-group"><span>状态</span><div class="filter-options"><label><input type="checkbox" data-explorer-filter="playable">可播放</label><label><input type="checkbox" data-explorer-filter="problem">异常项</label><label><input type="checkbox" data-explorer-filter="scraped">已刮削</label><label><input type="checkbox" data-explorer-filter="unmatched">待刮削</label></div></div><div class="filter-group"><span>来源</span><div class="filter-options"><label><input type="checkbox" data-explorer-filter="local">有本地文件</label><label><input type="checkbox" data-explorer-filter="network">有网络源</label></div></div></div></div><select class="explorer-sort" id="explorerSort" aria-label="排序方式"><option value="name-asc">名称 A-Z</option><option value="modified-desc">最近修改</option><option value="size-desc">文件大小</option><option value="status-asc">状态</option></select><div class="explorer-layout-actions"><button class="layout-icon active" data-toggle-pane="tree" title="显示或隐藏目录树" aria-label="显示或隐藏目录树"><i data-lucide="panel-left-close"></i></button><div class="view-switch" aria-label="文件展示方式"><button class="active" data-explorer-view="list" title="列表视图" aria-label="列表视图"><i data-lucide="list"></i></button><button data-explorer-view="grid" title="平铺视图" aria-label="平铺视图"><i data-lucide="layout-grid"></i></button></div><button class="layout-icon active" data-toggle-pane="inspector" title="显示或隐藏详情栏" aria-label="显示或隐藏详情栏"><i data-lucide="panel-right-close"></i></button></div><button class="button" data-file-action="new-folder"><i data-lucide="folder-plus"></i>新建文件夹</button><button class="button" data-file-action="import"><i data-lucide="files"></i>批量导入</button><button class="button" data-file-action="scan"><i data-lucide="scan-line"></i>扫描目录</button></div>
+        <div class="explorer-sourcebar" role="tablist" aria-label="媒体来源视图"><button class="source-tab active" role="tab" aria-selected="true" data-source-scope="local"><i data-lucide="folder-kanban"></i>本地文件 <small>742</small></button><button class="source-tab" role="tab" aria-selected="false" data-source-scope="network"><i data-lucide="radio-tower"></i>网络媒体 <small>21</small></button><button class="source-tab" role="tab" aria-selected="false" data-source-scope="missing"><i data-lucide="file-warning"></i>本地缺失 <small>12</small></button><span class="toolbar-spacer"></span><span class="toolbar-meta" id="sourceScopeHint">显示真实目录中的文件；同时拥有网络源的媒体也会出现在这里</span></div><div class="active-filter-strip" id="activeExplorerFilters"></div>
+        <div class="explorer">
+          <aside class="explorer-tree"><div class="tree-heading"><span>资源库与目录</span><button data-file-action="new-folder" title="新建文件夹"><i data-lucide="folder-plus"></i></button></div><div class="tree-row"><i class="tree-chevron" data-lucide="chevron-down"></i><i class="tree-icon" data-lucide="hard-drive"></i><span>电视剧库</span><small class="tree-count">315</small></div><button class="tree-row tree-indent" data-explorer-folder="电视剧库"><i class="tree-chevron" data-lucide="chevron-down"></i><i class="tree-icon" data-lucide="folder"></i><span>2024</span><small class="tree-count">68</small></button><button class="tree-row tree-indent deep active" data-explorer-folder="电视剧库 / 2024"><i class="tree-icon" data-lucide="folder-open"></i><span>国产剧</span><small class="tree-count">26</small></button><button class="tree-row tree-indent deep" data-explorer-folder="电视剧库 / 2024"><i class="tree-icon" data-lucide="folder"></i><span>欧美剧</span><small class="tree-count">39</small></button><button class="tree-row tree-indent" data-explorer-folder="电视剧库"><i class="tree-chevron" data-lucide="chevron-right"></i><i class="tree-icon" data-lucide="folder"></i><span>待整理</span><small class="tree-count">12</small></button><div class="tree-row"><i class="tree-chevron" data-lucide="chevron-down"></i><i class="tree-icon" data-lucide="hard-drive"></i><span>电影库</span><small class="tree-count">412</small></div><button class="tree-row tree-indent" data-explorer-folder="电影库"><i class="tree-icon" data-lucide="folder"></i><span>2024</span><small class="tree-count">47</small></button><button class="tree-row tree-indent" data-explorer-folder="电影库"><i class="tree-icon" data-lucide="folder"></i><span>待整理</span><small class="tree-count">4</small></button><div class="side-rule"></div><button class="tree-row" data-file-action="library"><i class="tree-icon" data-lucide="plus"></i><span>添加资源库</span></button></aside>
+          <section class="explorer-center"><div class="explorer-breadcrumb"><button data-toast="已返回资源库根目录">电视剧库</button><i data-lucide="chevron-right"></i><button data-toast="已打开 2024 目录">2024</button><i data-lucide="chevron-right"></i><button style="color:var(--mint)">国产剧</button></div><div class="drop-import" id="dropImport" data-single-import><span class="drop-import-icon"><i data-lucide="file-up"></i></span><div><strong>拖入单个媒体文件</strong><small>导入到当前目录 · 自动建立索引并进入任务队列</small></div><button class="button" type="button"><i data-lucide="folder-open"></i>选择文件</button></div><div class="explorer-list"><div class="explorer-list-head"><span><input type="checkbox" id="explorerSelectAll"></span><span>名称</span><span>类型</span><span>修改时间</span><span>状态</span></div><div class="explorer-item" role="button" tabindex="0" data-explorer-item data-kind="folder" data-name="庆余年" data-path="D:\\Media\\TV Shows\\2024\\国产剧\\庆余年" data-size="26 个媒体" data-status="已索引"><span><input type="checkbox" class="explorer-check"></span><span class="item-name"><i data-lucide="folder"></i><strong>庆余年</strong></span><small>文件夹</small><small>今天 09:35</small><span class="item-status">已索引</span></div><div class="explorer-item" role="button" tabindex="0" data-explorer-item data-kind="folder" data-name="繁花" data-path="D:\\Media\\TV Shows\\2024\\国产剧\\繁花" data-size="30 个媒体" data-status="已索引"><span><input type="checkbox" class="explorer-check"></span><span class="item-name"><i data-lucide="folder"></i><strong>繁花</strong></span><small>文件夹</small><small>昨天 21:10</small><span class="item-status">已索引</span></div><div class="explorer-item file" role="button" tabindex="0" data-explorer-item data-kind="file" data-media-id="23" data-name="庆余年 S02E18" data-path="D:\\Media\\TV Shows\\2024\\国产剧\\庆余年\\S02E18.mkv" data-size="18.4 GB" data-status="可播放" data-poster="backend/data/posters/23.jpg"><span><input type="checkbox" class="explorer-check"></span><span class="item-name"><i data-lucide="film"></i><strong>庆余年 S02E18.mkv</strong></span><small>4K · MKV</small><small>今天 09:35</small><span class="item-status">可播放</span></div><div class="explorer-item file" role="button" tabindex="0" data-explorer-item data-kind="file" data-media-id="22" data-name="庆余年 S02E17" data-path="D:\\Media\\TV Shows\\2024\\国产剧\\庆余年\\S02E17.mkv" data-size="17.8 GB" data-status="可播放" data-poster="backend/data/posters/23.jpg"><span><input type="checkbox" class="explorer-check"></span><span class="item-name"><i data-lucide="film"></i><strong>庆余年 S02E17.mkv</strong></span><small>4K · MKV</small><small>昨天 20:18</small><span class="item-status">可播放</span></div><div class="explorer-item file" role="button" tabindex="0" data-explorer-item data-kind="file" data-media-id="21" data-name="庆余年 S02E16" data-path="D:\\Media\\TV Shows\\2024\\国产剧\\庆余年\\S02E16.mkv" data-size="17.5 GB" data-status="路径变化" data-poster="backend/data/posters/23.jpg"><span><input type="checkbox" class="explorer-check"></span><span class="item-name"><i data-lucide="film"></i><strong>庆余年 S02E16.mkv</strong></span><small>4K · MKV</small><small>昨天 19:41</small><span class="item-status warn">路径变化</span></div></div></section>
+          <aside class="explorer-inspector" id="explorerInspector"><div class="inspector-preview folder"><i data-lucide="folder-open"></i></div><h3 class="inspector-title">国产剧</h3><div class="inspector-path">D:\Media\TV Shows\2024\国产剧</div><div class="inspector-meta"><div><span>项目</span><strong>26 个媒体</strong></div><div><span>占用空间</span><strong>438 GB</strong></div><div><span>修改时间</span><strong>今天 09:35</strong></div><div><span>索引状态</span><strong style="color:var(--mint)">正常</strong></div></div><div class="inspector-actions"><button data-file-action="new-folder"><i data-lucide="folder-plus"></i>新建子文件夹</button><button data-file-action="rename"><i data-lucide="pencil"></i>重命名</button><button data-file-action="move"><i data-lucide="folder-input"></i>移动</button><button class="danger" data-file-action="delete"><i data-lucide="trash-2"></i>删除</button></div></aside>
+        </div>
+      </section>
+
+      <section class="view-content standalone-view" data-view-panel="metadata" hidden><div class="section-head"><h2>元数据与刮削</h2><span class="muted">识别结果、来源匹配和封面质量独立治理</span><button class="button primary" data-toast="25 个待刮削媒体已加入队列"><i data-lucide="wand-sparkles"></i>批量刮削</button></div><div class="view-toolbar"><span class="toolbar-title">待处理队列</span><button class="filter-chip active">全部 <b>25</b></button><button class="filter-chip">未匹配 <b>8</b></button><button class="filter-chip">缺封面 <b>17</b></button><span class="toolbar-spacer"></span><span class="toolbar-meta">来源优先级：TMDB → 本地文件名 → 手动确认</span></div><div class="panel" style="border-top:0;border-radius:0 0 var(--radius) var(--radius);overflow:hidden"><table class="issue-table"><thead><tr><th>媒体</th><th>当前识别</th><th>候选来源</th><th>变更摘要</th><th>操作</th></tr></thead><tbody><tr><td><div class="issue-name-cell"><span class="issue-thumb"><img src="backend/data/posters/47.jpg" alt=""></span><strong>无耻之徒 · S01E02</strong></div></td><td>仅文件名</td><td><span class="status-line">TMDB 98%</span></td><td>新增简介、演员、季信息、海报</td><td><button class="button primary" data-toast="已打开元数据对比">对比确认</button></td></tr><tr><td><div class="issue-name-cell"><span class="issue-thumb"><img src="backend/data/posters/23.jpg" alt=""></span><strong>庆余年 · S02E18</strong></div></td><td>已匹配</td><td><span class="status-line warn">季海报缺失</span></td><td>从系列继承 1 张海报</td><td><button class="button" data-toast="已打开封面预览">预览</button></td></tr><tr><td><div class="issue-name-cell"><span class="issue-thumb"><img src="backend/data/posters/10.jpg" alt=""></span><strong>天空之城</strong></div></td><td>手动信息</td><td><span class="status-line">TMDB 100%</span></td><td>存在 2 个候选版本</td><td><button class="button" data-toast="已打开候选匹配">选择来源</button></td></tr></tbody></table></div></section>
+
+      <section class="view-content standalone-view" data-view-panel="tags" hidden><div class="section-head"><h2>标签治理</h2><span class="muted">维护标签体系、合并重复标签和检查孤立标签</span><button class="button primary" data-toast="已打开新建标签类型">新建标签类型</button></div><div class="tag-admin"><aside class="tag-groups"><div class="side-label">标签类型</div><div class="tag-group active"><i data-lucide="film"></i><span>类型</span><span>128</span></div><div class="tag-group"><i data-lucide="globe-2"></i><span>国家 / 地区</span><span>42</span></div><div class="tag-group"><i data-lucide="user-round"></i><span>人物</span><span>286</span></div><div class="tag-group"><i data-lucide="sparkles"></i><span>主题</span><span>64</span></div><div class="tag-group"><i data-lucide="circle-alert"></i><span>待治理</span><span style="color:var(--amber)">12</span></div></aside><section class="tag-content"><div class="view-toolbar" style="padding:0 0 12px;border:0;background:transparent"><span class="toolbar-title">类型标签</span><span class="toolbar-meta">128 个标签 · 4 个待合并</span><span class="toolbar-spacer"></span><input class="search-input" placeholder="搜索标签" aria-label="搜索标签"><button class="button" data-toast="已打开标签导入">导入</button></div><div class="tag-card-grid"><div class="tag-card"><div class="tag-card-head"><i></i><strong>电影</strong></div><small>412 个媒体 · 系统标签</small></div><div class="tag-card"><div class="tag-card-head"><i style="background:var(--blue)"></i><strong>电视剧</strong></div><small>315 个媒体 · 系统标签</small></div><div class="tag-card"><div class="tag-card-head"><i style="background:var(--purple)"></i><strong>纪录片</strong></div><small>96 个媒体 · 用户标签</small></div><div class="tag-card"><div class="tag-card-head"><i style="background:var(--amber)"></i><strong>科幻</strong></div><small>38 个媒体 · 可合并 1 个</small></div><div class="tag-card"><div class="tag-card-head"><i style="background:var(--red)"></i><strong>待确认</strong></div><small>12 个媒体 · 缺少类型</small></div><div class="tag-card"><div class="tag-card-head"><i style="background:var(--text-3)"></i><strong>未分类</strong></div><small>21 个媒体 · 建议处理</small></div></div></section></div></section>
+
+      <section class="view-content standalone-view" data-view-panel="trash" hidden><div class="section-head"><h2>回收站</h2><span class="muted">恢复媒体记录或清理已确认不需要的文件</span><button class="button" data-toast="已打开清空回收站确认">清空回收站</button></div><div class="view-toolbar"><span class="toolbar-title">已删除媒体</span><span class="toolbar-meta">6 项 · 自动保留 30 天</span><span class="toolbar-spacer"></span><button class="filter-chip active">全部</button><button class="filter-chip">文件仍存在 <b>4</b></button><button class="filter-chip">文件已缺失 <b>2</b></button></div><div class="trash-list"><div class="trash-item"><img src="backend/data/posters/49.jpg" alt=""><div><strong>金刚狼 3：殊死一战</strong><small>删除于今天 · 文件仍存在</small></div><button data-toast="已恢复金刚狼 3">恢复</button></div><div class="trash-item"><img src="backend/data/posters/48.jpg" alt=""><div><strong>红猪</strong><small>删除于昨天 · 文件仍存在</small></div><button data-toast="已恢复红猪">恢复</button></div><div class="trash-item"><img src="backend/data/posters/50.jpg" alt=""><div><strong>名侦探柯南：漆黑的追踪者</strong><small>删除于 3 天前 · 文件已缺失</small></div><button data-toast="已打开路径修复">定位</button></div><div class="trash-item"><img src="backend/data/posters/10.jpg" alt=""><div><strong>天空之城 · 旧版本</strong><small>删除于 8 天前 · 文件仍存在</small></div><button data-toast="已打开永久删除确认">永久删除</button></div></div></section>
+
+      <section class="view-content standalone-view" data-view-panel="tasks" hidden><div class="section-head"><h2>任务队列</h2><span class="muted">统一观察扫描、刮削、封面、重命名和文件操作</span><button class="button" data-toast="已清理已完成任务">清理已完成</button></div><div class="task-board"><article class="panel"><div class="panel-head"><h3>全部任务</h3><span class="panel-meta">3 个运行中 · 2 个等待 · 18 个已完成</span></div><div class="job-list"><div class="job"><span class="job-icon scan"><i data-lucide="scan-line"></i></span><div class="job-copy"><strong>扫描 · 电视剧库</strong><small>315 / 315 项 · 正在检查路径变化</small></div><div class="job-progress"><div class="line"><i style="width:84%"></i></div><small><span>84%</span><span>取消</span></small></div></div><div class="job"><span class="job-icon scrape"><i data-lucide="wand-sparkles"></i></span><div class="job-copy"><strong>批量刮削 · 25 个媒体</strong><small>12 / 25 项 · TMDB · 1 个候选待确认</small></div><div class="job-progress"><div class="line"><i style="width:48%"></i></div><small><span>48%</span><span>取消</span></small></div></div><div class="job"><span class="job-icon"><i data-lucide="folder-input"></i></span><div class="job-copy"><strong>移动文件 · 8 个媒体</strong><small>等待执行 · 目标目录冲突策略已设置</small></div><div class="job-progress"><div class="line"><i style="width:0%"></i></div><small><span>等待</span><span>取消</span></small></div></div></div></article><article class="panel"><div class="panel-head"><h3>任务详情</h3><button class="panel-action" data-toast="已打开任务错误日志">查看日志</button></div><div class="task-detail"><h3>批量刮削 · 25 个媒体</h3><p>任务开始于今天 09:28 · 由问题中心创建</p><div class="detail-line"><span>当前阶段</span><strong>匹配候选</strong></div><div class="detail-line"><span>成功</span><strong style="color:var(--mint)">11</strong></div><div class="detail-line"><span>待确认</span><strong style="color:var(--amber)">1</strong></div><div class="detail-line"><span>失败</span><strong style="color:var(--red)">0</strong></div><div class="detail-line"><span>预计剩余</span><strong>约 4 分钟</strong></div></div></article></div></section>
+
+      <section class="view-content standalone-view" data-view-panel="history" hidden><div class="section-head"><h2>操作记录</h2><span class="muted">所有影响文件、元数据和资源库的动作都可追溯</span><button class="button" data-toast="已导出操作记录">导出记录</button></div><div class="view-toolbar"><span class="toolbar-title">最近 30 天</span><span class="toolbar-meta">共 126 条记录</span><span class="toolbar-spacer"></span><input class="search-input" placeholder="搜索操作、媒体或路径" aria-label="搜索操作"></div><div class="panel" style="border-top:0;border-radius:0 0 var(--radius) var(--radius);overflow:auto"><table class="history-table"><thead><tr><th>时间</th><th>操作</th><th>对象</th><th>结果</th><th>操作者</th></tr></thead><tbody><tr><td>今天 09:42</td><td>扫描资源库</td><td>电视剧库 / 国产剧</td><td><span class="status-line">完成 · 新增 4</span></td><td>系统</td></tr><tr><td>今天 09:35</td><td>移动文件</td><td>庆余年 S02E18.mkv</td><td><span class="status-line warn">待确认路径</span></td><td>管理员</td></tr><tr><td>今天 09:18</td><td>批量添加标签</td><td>8 个媒体 · 科幻 / 经典</td><td><span class="status-line">完成</span></td><td>管理员</td></tr><tr><td>昨天 21:10</td><td>恢复媒体</td><td>红猪</td><td><span class="status-line">完成</span></td><td>管理员</td></tr></tbody></table></div></section>
+    </main>
+  </div>
+
+  <div class="bulk-bar" id="bulkBar"><strong><span id="selectedCount">0</span> 个资产已选择</strong><span>批量操作会先生成预览</span><div class="bulk-actions"><button id="bulkScrape"><i data-lucide="wand-sparkles"></i><span>刮削元数据</span></button><button id="bulkTag"><i data-lucide="tag"></i><span>添加标签</span></button><button id="bulkMove"><i data-lucide="folder-input"></i><span>移动资源库</span></button><button class="danger" id="bulkDelete"><i data-lucide="trash-2"></i><span>移入回收站</span></button></div></div>
+  <div class="bulk-bar explorer-bulk-bar" id="explorerBulkBar"><strong><span id="explorerSelectedCount">0</span> 个项目已选择</strong><span>文件操作将在确认后执行</span><div class="bulk-actions"><button data-file-action="rename"><i data-lucide="pencil"></i><span>重命名</span></button><button data-file-action="move"><i data-lucide="folder-input"></i><span>移动</span></button><button class="danger" data-file-action="delete"><i data-lucide="trash-2"></i><span>移入回收站</span></button></div></div>
+
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="drawer" id="taskDrawer" aria-label="任务队列"><div class="drawer-head"><div><h2>任务队列</h2><p>每个长任务都可以观察、暂停和追溯</p></div><button class="drawer-close" id="drawerClose"><i data-lucide="x"></i></button></div><div class="drawer-section"><h3>运行中</h3><div class="job-list" style="padding:0"><div class="job"><span class="job-icon scan"><i data-lucide="scan-line"></i></span><div class="job-copy"><strong>扫描 · 电视剧库</strong><small>315 / 315 项 · 约 2 分钟</small></div><div class="job-progress"><div class="line"><i style="width:84%"></i></div><small><span>84%</span><span></span></small></div></div><div class="job"><span class="job-icon scrape"><i data-lucide="wand-sparkles"></i></span><div class="job-copy"><strong>批量刮削 · 25 个媒体</strong><small>12 / 25 项 · TMDB</small></div><div class="job-progress"><div class="line"><i style="width:48%"></i></div><small><span>48%</span><span></span></small></div></div></div></div><div class="drawer-section"><h3>最近完成</h3><div class="impact-row"><span>扫描 · 电影库</span><strong style="color:var(--mint)">完成</strong></div><div class="impact-row"><span>缩略图重建 · 56 项</span><strong style="color:var(--mint)">完成</strong></div><div class="impact-row"><span>批量重命名 · 8 项</span><strong style="color:var(--red)">1 个冲突</strong></div></div></aside>
+
+  <aside class="drawer" id="previewDrawer" aria-label="批量操作预览"><div class="drawer-head"><div><h2>批量操作预览</h2><p>应用前确认影响范围、冲突和不可逆动作</p></div><button class="drawer-close" id="previewClose"><i data-lucide="x"></i></button></div><div class="drawer-section"><h3>将要处理</h3><div class="impact-row"><span>选中资产</span><strong id="previewCount">0 项</strong></div><div class="impact-row"><span>本地文件</span><strong>3 项</strong></div><div class="impact-row"><span>网络媒体</span><strong>1 项</strong></div><div class="impact-row"><span>受限内容</span><strong>1 项</strong></div></div><div class="drawer-section"><h3>变更预览</h3><div class="preview-list"><div class="preview-item"><img src="backend/data/posters/23.jpg" alt=""><div><strong>庆余年 第二季 · 第 18 集</strong><small>补充季海报 · 保留播放进度</small></div><span class="checkmark"><i data-lucide="check"></i></span></div><div class="preview-item"><img src="backend/data/posters/47.jpg" alt=""><div><strong>无耻之徒</strong><small>匹配 TMDB · 将新增 6 个字段</small></div><span class="checkmark"><i data-lucide="check"></i></span></div><div class="preview-item"><img src="backend/data/posters/49.jpg" alt=""><div><strong>金刚狼 3：殊死一战</strong><small>跳过文件操作 · 仅更新元数据</small></div><span class="checkmark"><i data-lucide="check"></i></span></div></div></div><div class="drawer-section"><h3>执行策略</h3><div class="impact-row"><span>冲突处理</span><strong>保留原文件</strong></div><div class="impact-row"><span>失败项</span><strong>记录并继续</strong></div></div><div class="drawer-footer"><button class="button" id="previewCancel">取消</button><button class="button primary" data-toast="任务已加入队列" id="previewApply">确认并加入队列</button></div></aside>
+
+  <div class="operation-modal" id="operationModal" hidden>
+    <section class="operation-dialog" role="dialog" aria-modal="true" aria-labelledby="operationTitle">
+      <header class="operation-head"><div><h2 id="operationTitle">文件操作</h2><p id="operationDescription">确认当前操作的影响范围</p></div><button class="operation-close" id="operationClose" aria-label="关闭"><i data-lucide="x"></i></button></header>
+      <div class="operation-body"><div class="operation-context"><i id="operationIcon" data-lucide="folder"></i><div><strong id="operationTarget">当前未选择项目</strong><small id="operationPath">请选择文件夹或媒体文件</small></div></div><div class="operation-fields" id="operationFields"></div><p class="operation-note" id="operationNote">操作会记录到操作记录，并在任务队列中显示进度。</p></div>
+      <footer class="operation-footer"><button class="button" id="operationCancel">取消</button><button class="button primary" id="operationConfirm">确认操作</button></footer>
+    </section>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script>
+    const $ = (s, root = document) => root.querySelector(s);
+    const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+    const toast = (message) => { const el = $('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(window.toastTimer); window.toastTimer = setTimeout(() => el.classList.remove('show'), 2200); };
+    const closeDrawers = () => { $('#drawerBackdrop').classList.remove('open'); $('#taskDrawer').classList.remove('open'); $('#previewDrawer').classList.remove('open'); };
+    const openTaskDrawer = () => { $('#drawerBackdrop').classList.add('open'); $('#taskDrawer').classList.add('open'); $('#previewDrawer').classList.remove('open'); };
+    const openPreview = () => { $('#drawerBackdrop').classList.add('open'); $('#previewDrawer').classList.add('open'); $('#taskDrawer').classList.remove('open'); $('#previewCount').textContent = `${$$('.row-check:checked').length} 项`; };
+    const refreshSelection = () => { const selected = $$('.row-check:checked').length; $('#selectedCount').textContent = selected; $('#bulkBar').classList.toggle('show', selected > 0); $('#selectAll').checked = selected > 0 && selected === $$('.row-check').length; };
+    const explorerState = { currentFolder: '电视剧库 / 2024 / 国产剧', currentPath: 'D:\\Media\\TV Shows\\2024\\国产剧', selected: null, sourceScope: 'local' };
+    const viewSubtitles = { dashboard: '管理媒体库的完整性、可播放性和元数据质量', assets: '查看全部媒体资产、状态和资源库归属', issues: '按影响范围处理文件、路径和元数据问题', files: '直接浏览和管理系统文件夹与媒体文件', metadata: '确认识别结果、来源匹配和封面质量', tags: '维护标签体系、合并重复标签和检查孤立标签', trash: '恢复或清理已经移入回收站的媒体', tasks: '观察扫描、刮削和文件操作的执行进度', history: '追溯所有影响文件、元数据和资源库的操作' };
+    const switchView = (section, notify = true) => {
+      const dashboardContent = $('#dashboardContent');
+      const isDashboard = section === 'dashboard';
+      const isAssets = section === 'assets';
+      dashboardContent.hidden = !isDashboard && !isAssets;
+      $('#healthStrip').hidden = !isDashboard && !isAssets;
+      $('#dashboardView').hidden = !isDashboard;
+      $('#assetView').hidden = !isDashboard && !isAssets;
+      $$('[data-view-panel]').forEach((panel) => { panel.hidden = panel.dataset.viewPanel !== section; });
+      $('#bulkBar').classList.toggle('show', (isDashboard || isAssets) && $$('.row-check:checked').length > 0);
+      $('#explorerBulkBar').classList.toggle('show', section === 'files' && $$('.explorer-check:checked').length > 0);
+      const nav = $(`[data-section="${section}"]`);
+      $$('.side-item').forEach((item) => item.classList.toggle('active', item === nav));
+      const name = nav?.querySelector('span')?.textContent || '管理视图';
+      $('#pageTitle').textContent = name;
+      $('#pageSubtitle').textContent = viewSubtitles[section] || '以问题处理和批量操作为核心';
+      if (notify) toast(`已切换到${name}`);
+    };
+    const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    const selectedExplorerItem = () => explorerState.selected || $('[data-explorer-item].selected') || $('[data-explorer-item]');
+    const formatFileSize = (bytes) => { if (!Number.isFinite(bytes) || bytes <= 0) return '待计算'; const units = ['B', 'KB', 'MB', 'GB', 'TB']; const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1); return `${(bytes / (1024 ** index)).toFixed(index > 1 ? 1 : 0)} ${units[index]}`; };
+    const refreshExplorerItemCount = () => { const count = $$('[data-explorer-item]').filter((item) => !item.hidden).length; if ($('#explorerItemCount')) $('#explorerItemCount').textContent = `${count} 个项目`; };
+    const decorateExplorerItem = (item) => {
+      if (!item || $('.item-tile-preview', item)) return;
+      const preview = item.dataset.poster ? `<span class="item-tile-preview"><img src="${escapeHtml(item.dataset.poster)}" alt=""></span>` : `<span class="item-tile-preview"><i data-lucide="${item.dataset.kind === 'folder' ? 'folder' : 'film'}"></i></span>`;
+      item.firstElementChild.insertAdjacentHTML('afterend', preview);
+    };
+    const appendExplorerFile = ({ name, size = '待计算', type = '媒体文件', modified = '刚刚', status = '待索引', poster = '' }) => {
+      const safeName = name || '待导入媒体.mkv';
+      const list = $('.explorer-list');
+      const isWarning = status === '待索引' || status === '路径变化' || status === '待同步';
+      const posterAttribute = poster ? ` data-poster="${escapeHtml(poster)}"` : '';
+      list.insertAdjacentHTML('beforeend', `<div class="explorer-item file" role="button" tabindex="0" data-explorer-item data-kind="file" data-name="${escapeHtml(safeName)}" data-path="${escapeHtml(`${explorerState.currentPath}\\${safeName}`)}" data-size="${escapeHtml(size)}" data-status="${escapeHtml(status)}"${posterAttribute}><span><input type="checkbox" class="explorer-check"></span><span class="item-name"><i data-lucide="film"></i><strong>${escapeHtml(safeName)}</strong></span><small>${escapeHtml(type)}</small><small>${escapeHtml(modified)}</small><span class="item-status${isWarning ? ' warn' : ''}">${escapeHtml(status)}</span></div>`);
+      const imported = list.querySelector('.explorer-item:last-child');
+      imported.querySelector('.explorer-check').addEventListener('change', updateExplorerSelection);
+      decorateExplorerItem(imported);
+      refreshExplorerItemCount();
+      if (window.lucide) window.lucide.createIcons();
+      return imported;
+    };
+    const appendImportedFile = (name, size = '待计算') => appendExplorerFile({ name, size });
+    const appendSourceMedia = ({ scope, kind, mediaId, name, meta, changed, status, poster, path, sources = 0, platform = '', localState = '' }) => {
+      const list = $('.explorer-list');
+      const tone = status.includes('失效') || status.includes('不可用') ? ' bad' : status.includes('缺失') || status.includes('待') ? ' warn' : '';
+      const mediaIdAttribute = mediaId ? ` data-media-id="${escapeHtml(mediaId)}"` : '';
+      list.insertAdjacentHTML('beforeend', `<div class="explorer-item ${escapeHtml(kind)}" role="button" tabindex="0" data-explorer-item data-source-scope-item="${escapeHtml(scope)}" data-kind="${escapeHtml(kind)}"${mediaIdAttribute} data-name="${escapeHtml(name)}" data-path="${escapeHtml(path)}" data-size="${escapeHtml(meta)}" data-status="${escapeHtml(status)}" data-sources="${sources}" data-platform="${escapeHtml(platform)}" data-local-state="${escapeHtml(localState)}"${poster ? ` data-poster="${escapeHtml(poster)}"` : ''} hidden><span><input type="checkbox" class="explorer-check"></span><span class="item-name"><i data-lucide="${kind === 'network' ? 'radio-tower' : 'file-warning'}"></i><strong>${escapeHtml(name)}</strong></span><small>${escapeHtml(meta)}</small><small>${escapeHtml(changed)}</small><span class="item-status${tone}">${escapeHtml(status)}</span></div>`);
+      const item = list.querySelector('.explorer-item:last-child');
+      decorateExplorerItem(item);
+      return item;
+    };
+    const renderInspector = (item) => {
+      if (!item) return;
+      const kind = item.dataset.kind || 'file';
+      const isFolder = kind === 'folder';
+      const detailAction = item.dataset.mediaId ? `<button class="detail-action" data-open-media-detail="${escapeHtml(item.dataset.mediaId)}"><i data-lucide="external-link"></i>查看媒体详情</button>` : '';
+      if (kind === 'network') {
+        const preview = item.dataset.poster ? `<div class="inspector-preview"><img src="${escapeHtml(item.dataset.poster)}" alt=""></div>` : '<div class="inspector-preview folder"><i data-lucide="radio-tower"></i></div>';
+        $('#explorerInspector').innerHTML = `${preview}<h3 class="inspector-title">${escapeHtml(item.dataset.name)}</h3><div class="inspector-path">${escapeHtml(item.dataset.path)}</div><div class="inspector-meta"><div><span>播放源</span><strong>${escapeHtml(item.dataset.sources || '1')} 个</strong></div><div><span>主要来源</span><strong>${escapeHtml(item.dataset.platform || '网络')}</strong></div><div><span>本地关联</span><strong>${escapeHtml(item.dataset.localState || '无本地文件')}</strong></div><div><span>检测状态</span><strong style="color:${item.dataset.status.includes('失效') ? 'var(--red)' : 'var(--mint)'}">${escapeHtml(item.dataset.status)}</strong></div></div><div class="source-list"><div class="source-row"><i data-lucide="play-circle"></i><div><strong>${escapeHtml(item.dataset.platform || '主播放源')}</strong><small>上次检测：今天 09:42</small></div><em>${item.dataset.status.includes('失效') ? '失效' : '可用'}</em></div></div><div class="inspector-actions">${detailAction}<button data-toast="已使用默认网络源播放"><i data-lucide="play"></i>播放</button><button data-toast="已打开播放源管理"><i data-lucide="link-2"></i>管理来源</button><button data-toast="已打开本地文件关联"><i data-lucide="file-symlink"></i>关联本地文件</button><button class="danger" data-file-action="delete"><i data-lucide="trash-2"></i>移入回收站</button></div>`;
+        if (window.lucide) window.lucide.createIcons();
+        return;
+      }
+      if (kind === 'missing') {
+        const canPlay = Number(item.dataset.sources || 0) > 0;
+        const preview = item.dataset.poster ? `<div class="inspector-preview"><img src="${escapeHtml(item.dataset.poster)}" alt=""></div>` : '<div class="inspector-preview folder"><i data-lucide="file-warning"></i></div>';
+        $('#explorerInspector').innerHTML = `${preview}<h3 class="inspector-title">${escapeHtml(item.dataset.name)}</h3><div class="inspector-path">${escapeHtml(item.dataset.path)}</div><div class="inspector-meta"><div><span>本地文件</span><strong style="color:var(--amber)">已缺失</strong></div><div><span>网络源</span><strong>${canPlay ? `${item.dataset.sources} 个可用` : '无'}</strong></div><div><span>最后发现</span><strong>昨天 18:20</strong></div><div><span>当前能力</span><strong>${canPlay ? '仍可播放' : '仅保留记录'}</strong></div></div><div class="inspector-actions">${detailAction}${canPlay ? '<button data-toast="已切换到网络源播放"><i data-lucide="play"></i>网络播放</button>' : ''}<button data-toast="已打开本地文件关联"><i data-lucide="file-symlink"></i>重新关联</button><button data-toast="已开始搜索可能的新路径"><i data-lucide="search"></i>查找路径</button><button class="danger" data-file-action="delete"><i data-lucide="trash-2"></i>移入回收站</button></div>`;
+        if (window.lucide) window.lucide.createIcons();
+        return;
+      }
+      const icon = isFolder ? 'folder-open' : 'film';
+      const preview = item.dataset.poster ? `<div class="inspector-preview"><img src="${escapeHtml(item.dataset.poster)}" alt=""></div>` : `<div class="inspector-preview folder"><i data-lucide="${icon}"></i></div>`;
+      const actions = isFolder
+        ? '<button data-file-action="new-folder"><i data-lucide="folder-plus"></i>新建子文件夹</button><button data-file-action="rename"><i data-lucide="pencil"></i>重命名</button><button data-file-action="move"><i data-lucide="folder-input"></i>移动</button><button class="danger" data-file-action="delete"><i data-lucide="trash-2"></i>删除</button>'
+        : `${detailAction}<button data-file-action="rename"><i data-lucide="pencil"></i>重命名</button><button data-file-action="move"><i data-lucide="folder-input"></i>移动</button><button data-file-action="scan"><i data-lucide="scan-line"></i>重新索引</button><button class="danger" data-file-action="delete"><i data-lucide="trash-2"></i>删除</button>`;
+      $('#explorerInspector').innerHTML = `${preview}<h3 class="inspector-title">${escapeHtml(item.dataset.name)}</h3><div class="inspector-path">${escapeHtml(item.dataset.path)}</div><div class="inspector-meta"><div><span>${isFolder ? '项目' : '文件大小'}</span><strong>${escapeHtml(item.dataset.size || '—')}</strong></div><div><span>类型</span><strong>${isFolder ? '文件夹' : '媒体文件'}</strong></div><div><span>状态</span><strong style="color:${item.dataset.status === '路径变化' ? 'var(--amber)' : 'var(--mint)'}">${escapeHtml(item.dataset.status || '待检查')}</strong></div><div><span>操作范围</span><strong>${isFolder ? '含子项目' : '当前文件'}</strong></div></div><div class="inspector-actions">${actions}</div>`;
+      if (window.lucide) window.lucide.createIcons();
+    };
+    const updateCurrentFolder = (row) => {
+      const label = row.querySelector('span')?.textContent?.trim() || '当前目录';
+      const parent = row.dataset.explorerFolder || '资源库';
+      explorerState.currentFolder = `${parent} / ${label}`;
+      explorerState.currentPath = `D:\\Media\\${parent.replaceAll(' / ', '\\')}\\${label}`;
+      $$('.tree-row[data-explorer-folder]').forEach((item) => item.classList.toggle('active', item === row));
+      const crumbs = $$('.explorer-breadcrumb button');
+      if (crumbs.length) crumbs[crumbs.length - 1].textContent = label;
+      const meta = $('.view-toolbar .toolbar-meta', $('[data-view-panel="files"]'));
+      if (meta) meta.textContent = explorerState.currentFolder;
+      explorerState.selected = null;
+      $$('.explorer-item').forEach((item) => item.classList.remove('selected'));
+      toast(`已打开 ${explorerState.currentFolder}`);
+    };
+    const operationConfig = {
+      'new-folder': { title: '新建文件夹', description: '在当前目录创建一个新的文件夹', confirm: '创建文件夹', field: '<label>文件夹名称<input id="operationValue" value="新文件夹" autofocus></label>', note: '创建后会立即出现在当前目录，并加入资源库索引。' },
+      import: { title: '导入媒体', description: '将媒体文件加入当前目录并建立索引', confirm: '导入并扫描', field: '<label>媒体文件<input id="operationValue" type="file" accept="video/*,.mkv,.mp4,.mov,.avi,.webm" multiple></label>', note: '导入只建立媒体记录，不会覆盖同名文件；冲突会进入问题中心。' },
+      scan: { title: '扫描目录', description: '检查文件变化、缺失状态和新增媒体', confirm: '开始扫描', field: '<label>扫描范围<select id="operationValue"><option>当前目录及子目录</option><option>仅当前目录</option><option>仅检查路径变化</option></select></label>', note: '扫描会生成任务，可在任务队列中观察进度和错误日志。' },
+      rename: { title: '重命名', description: '修改文件夹或媒体文件的显示名称', confirm: '保存名称', field: '<label>新名称<input id="operationValue" autofocus></label>', note: '媒体文件会保留扩展名；重命名结果将记录到操作记录。' },
+      move: { title: '移动项目', description: '将选中的文件夹或媒体文件移动到其他目录', confirm: '确认移动', field: '<label>目标目录<select id="operationValue"><option>电视剧库 / 2024 / 国产剧</option><option>电视剧库 / 待整理</option><option>电影库 / 2024</option></select></label>', note: '移动前会检查同名冲突，原播放进度和元数据不会丢失。' },
+      delete: { title: '移入回收站', description: '从当前资源库移除项目，但保留恢复入口', confirm: '移入回收站', field: '', note: '这不会立即删除系统文件。确认后可在回收站恢复或永久删除。', danger: true },
+      library: { title: '添加资源库', description: '将系统文件夹纳入 vitoice 资源管理范围', confirm: '添加并扫描', field: '<label>资源库名称<input id="operationValue" value="新资源库"></label><label>系统路径<input id="operationPathValue" placeholder="例如 D:\\Media\\Documentaries"></label>', note: 'vitoice 只会读取和管理你明确添加的目录。' }
+    };
+    const openOperation = (action) => {
+      const config = operationConfig[action];
+      if (!config) return;
+      const item = selectedExplorerItem();
+      const isBulk = $$('.explorer-check:checked').length > 1 && ['rename', 'move', 'delete'].includes(action);
+      const targetName = isBulk ? `${$$('.explorer-check:checked').length} 个已选项目` : item?.dataset.name || explorerState.currentFolder;
+      const targetPath = isBulk ? '批量文件操作' : item?.dataset.path || explorerState.currentPath;
+      $('#operationTitle').textContent = config.title;
+      $('#operationDescription').textContent = config.description;
+      $('#operationTarget').textContent = targetName;
+      $('#operationPath').textContent = targetPath;
+      $('#operationFields').innerHTML = config.field;
+      $('#operationNote').textContent = config.note;
+      $('#operationNote').classList.toggle('danger', Boolean(config.danger));
+      $('#operationConfirm').textContent = config.confirm;
+      $('#operationConfirm').classList.toggle('danger', Boolean(config.danger));
+      $('#operationIcon').setAttribute('data-lucide', action === 'delete' ? 'trash-2' : action === 'import' ? 'file-plus-2' : action === 'scan' ? 'scan-line' : action === 'move' ? 'folder-input' : 'folder');
+      const value = $('#operationValue');
+      if (action === 'rename' && value && item) value.value = item.dataset.name;
+      $('#operationModal').hidden = false;
+      if (window.lucide) window.lucide.createIcons();
+      value?.focus();
+    };
+    const closeOperation = () => { $('#operationModal').hidden = true; };
+    const confirmOperation = () => {
+      const action = $('#operationTitle').textContent;
+      const item = selectedExplorerItem();
+      const value = $('#operationValue')?.value;
+      if (action === '重命名' && item && value) { item.dataset.name = value; const name = $('.item-name strong', item); if (name) name.textContent = value; }
+      if (action === '新建文件夹') {
+        const name = (value || '新文件夹').trim() || '新文件夹';
+        const list = $('.explorer-list');
+        list.insertAdjacentHTML('beforeend', `<div class="explorer-item" role="button" tabindex="0" data-explorer-item data-kind="folder" data-name="${escapeHtml(name)}" data-path="${escapeHtml(`${explorerState.currentPath}\\${name}`)}" data-size="空文件夹" data-status="待索引"><span><input type="checkbox" class="explorer-check"></span><span class="item-name"><i data-lucide="folder"></i><strong>${escapeHtml(name)}</strong></span><small>文件夹</small><small>刚刚</small><span class="item-status warn">待索引</span></div>`);
+        const created = list.querySelector('.explorer-item:last-child');
+        created.querySelector('.explorer-check').addEventListener('change', updateExplorerSelection);
+        decorateExplorerItem(created);
+        refreshExplorerItemCount();
+        if (window.lucide) window.lucide.createIcons();
+      }
+      if (action === '导入媒体') {
+        appendImportedFile('待导入媒体.mkv');
+      }
+      if (action === '移动项目' && item && value) { item.dataset.path = `D:\\Media\\${value.replaceAll(' / ', '\\')}\\${item.dataset.name}`; item.dataset.status = '待同步'; const status = $('.item-status', item); if (status) { status.textContent = '待同步'; status.classList.add('warn'); } if (item.classList.contains('selected')) renderInspector(item); }
+      if (action === '移入回收站') {
+        const targets = $$('.explorer-check:checked').map((checkbox) => checkbox.closest('[data-explorer-item]')).filter(Boolean);
+        (targets.length ? targets : [item]).filter(Boolean).forEach((target) => target.remove());
+        explorerState.selected = null;
+        updateExplorerSelection();
+        $('#explorerInspector').innerHTML = '<div class="inspector-empty"><div><i data-lucide="mouse-pointer-2"></i><p>请选择文件夹或媒体文件<br>查看属性和可用操作</p></div></div>';
+        if (window.lucide) window.lucide.createIcons();
+      }
+      closeOperation();
+      const messages = { '新建文件夹': '文件夹已创建并加入当前目录', '导入媒体': '导入任务已加入队列', '扫描目录': '扫描任务已加入队列', '重命名': '名称已更新，索引将自动同步', '移动项目': '移动任务已加入队列', '移入回收站': '项目已移入回收站', '添加资源库': '资源库已添加，扫描任务已加入队列' };
+      toast(messages[action] || '操作已完成');
+    };
+    const updateExplorerSelection = () => { const selected = $$('.explorer-check:checked'); $('#explorerSelectedCount').textContent = selected.length; $('#explorerBulkBar').classList.toggle('show', selected.length > 0); if ($('#explorerSelectionInfo')) $('#explorerSelectionInfo').textContent = selected.length ? `已选择 ${selected.length} 项` : '连续滚动浏览'; refreshExplorerItemCount(); };
+    const explorerFilterLabels = { folder: '文件夹', media: '媒体', playable: '可播放', problem: '异常项', scraped: '已刮削', unmatched: '待刮削', local: '有本地文件', network: '有网络源' };
+    const selectedExplorerFilters = () => $$('[data-explorer-filter]:checked').map((input) => input.dataset.explorerFilter);
+    const applyExplorerFilters = () => {
+      const scope = explorerState.sourceScope;
+      const query = ($('#explorerSearch').value || '').trim().toLowerCase();
+      const filters = selectedExplorerFilters();
+      const objectFilters = filters.filter((value) => ['folder', 'media'].includes(value));
+      const statusFilters = filters.filter((value) => ['playable', 'problem', 'scraped', 'unmatched'].includes(value));
+      const sourceFilters = filters.filter((value) => ['local', 'network'].includes(value));
+      $$('[data-explorer-item]').forEach((item) => {
+        const itemScope = item.dataset.sourceScopeItem || 'local';
+        const text = item.textContent.toLowerCase();
+        const kind = item.dataset.kind || 'file';
+        const status = item.dataset.status || '';
+        const objectMatch = !objectFilters.length || objectFilters.some((value) => value === 'folder' ? kind === 'folder' : kind !== 'folder');
+        const statusMatch = !statusFilters.length || statusFilters.some((value) => value === 'playable' ? status.includes('可播放') || status.includes('可用') : value === 'problem' ? /缺失|路径变化|失效|待同步|不可用/.test(status) : value === 'scraped' ? !/待刮削|待索引/.test(status) : /待刮削|待索引/.test(status));
+        const sourceMatch = !sourceFilters.length || sourceFilters.some((value) => value === 'network' ? Number(item.dataset.sources || 0) > 0 || kind === 'network' : kind !== 'network');
+        item.hidden = itemScope !== scope || (query && !text.includes(query)) || !objectMatch || !statusMatch || !sourceMatch;
+        const checkbox = $('.explorer-check', item);
+        if (item.hidden && checkbox) checkbox.checked = false;
+      });
+      const active = $('#activeExplorerFilters');
+      active.innerHTML = filters.map((value) => `<span class="active-filter-chip">${escapeHtml(explorerFilterLabels[value] || value)}</span>`).join('');
+      const count = $('#explorerFilterCount');
+      count.textContent = filters.length;
+      count.hidden = filters.length === 0;
+      $('#explorerFilterButton').classList.toggle('active', filters.length > 0);
+      updateExplorerSelection();
+    };
+    const sortExplorerItems = () => {
+      const list = $('.explorer-list');
+      const mode = $('#explorerSort').value;
+      const items = $$('.explorer-item', list);
+      const compare = (a, b) => {
+        if (mode === 'status-asc') return (a.dataset.status || '').localeCompare(b.dataset.status || '', 'zh-CN');
+        if (mode === 'modified-desc') return (b.dataset.modifiedOrder || b.textContent).localeCompare(a.dataset.modifiedOrder || a.textContent, 'zh-CN');
+        if (mode === 'size-desc') return Number(b.dataset.sizeOrder || 0) - Number(a.dataset.sizeOrder || 0);
+        const folderOrder = (a.dataset.kind === 'folder' ? 0 : 1) - (b.dataset.kind === 'folder' ? 0 : 1);
+        return folderOrder || (a.dataset.name || '').localeCompare(b.dataset.name || '', 'zh-CN');
+      };
+      items.sort(compare).forEach((item) => list.appendChild(item));
+    };
+    const setExplorerSourceScope = (scope) => {
+      explorerState.sourceScope = scope;
+      $$('.source-tab').forEach((tab) => { const active = tab.dataset.sourceScope === scope; tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active)); });
+      const scopeInfo = {
+        local: ['电视剧库 / 2024', '显示真实目录中的文件；同时拥有网络源的媒体也会出现在这里'],
+        network: ['全部资源库 / 网络媒体', '没有实体文件也可管理；包含纯网络、双来源及本地已删除的媒体'],
+        missing: ['全部资源库 / 本地缺失', '保留媒体信息，并区分“仍可网络播放”和“仅剩记录”']
+      }[scope];
+      $('#explorerScopeMeta').textContent = scopeInfo[0];
+      $('#sourceScopeHint').textContent = scopeInfo[1];
+      $('.explorer').classList.toggle('virtual-scope', scope !== 'local');
+      $('.explorer-breadcrumb').hidden = scope !== 'local';
+      $('#dropImport').hidden = scope !== 'local';
+      $$('[data-single-import]').forEach((button) => { button.hidden = scope !== 'local'; });
+      $$('[data-file-action="new-folder"], [data-file-action="import"], [data-file-action="scan"]').forEach((button) => { button.hidden = scope !== 'local'; });
+      $('.tree-heading span').textContent = scope === 'local' ? '资源库与目录' : '按资源库筛选';
+      const statusParts = $$('.explorer-statusbar span');
+      if (statusParts[1]) statusParts[1].textContent = scope === 'local' ? '当前目录：国产剧' : scope === 'network' ? '当前来源：网络媒体' : '当前来源：本地缺失';
+      explorerState.selected = null;
+      $$('.explorer-item').forEach((item) => item.classList.remove('selected'));
+      $('#explorerInspector').innerHTML = '<div class="inspector-empty"><div><i data-lucide="mouse-pointer-2"></i><p>请选择媒体<br>查看来源、路径和可用操作</p></div></div>';
+      applyExplorerFilters();
+      sortExplorerItems();
+      if (window.lucide) window.lucide.createIcons();
+    };
+    const importSingleFile = (file) => { if (!file) return; appendImportedFile(file.name, formatFileSize(file.size)); toast(`已加入 ${file.name}，等待建立索引`); };
+
+    document.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-toast]');
+      if (target) toast(target.dataset.toast);
+      const sourceTab = event.target.closest('[data-source-scope]');
+      if (sourceTab) { event.preventDefault(); setExplorerSourceScope(sourceTab.dataset.sourceScope); }
+      if (!event.target.closest('.explorer-filter-wrap')) $('#explorerFilterPopover').hidden = true;
+      const singleImport = event.target.closest('[data-single-import]');
+      if (singleImport) { event.preventDefault(); $('#singleFileInput').click(); }
+      const explorerView = event.target.closest('[data-explorer-view]');
+      if (explorerView) { event.preventDefault(); $$('[data-explorer-view]').forEach((button) => button.classList.toggle('active', button === explorerView)); $('.explorer-list').classList.toggle('grid-view', explorerView.dataset.explorerView === 'grid'); toast(explorerView.dataset.explorerView === 'grid' ? '已切换到平铺视图' : '已切换到列表视图'); }
+      const paneToggle = event.target.closest('[data-toggle-pane]');
+      if (paneToggle) { event.preventDefault(); const className = paneToggle.dataset.togglePane === 'tree' ? 'hide-tree' : 'hide-inspector'; const hidden = $('.explorer').classList.toggle(className); paneToggle.classList.toggle('active', !hidden); }
+      const nav = event.target.closest('[data-section]');
+      if (nav) switchView(nav.dataset.section);
+      const fileAction = event.target.closest('[data-file-action]');
+      if (fileAction) { event.preventDefault(); openOperation(fileAction.dataset.fileAction); }
+      const mediaDetail = event.target.closest('[data-open-media-detail]');
+      if (mediaDetail) { event.preventDefault(); event.stopPropagation(); toast(`复用现有媒体详情页 · /detail/${mediaDetail.dataset.openMediaDetail}`); }
+      const treeFolder = event.target.closest('[data-explorer-folder]');
+      if (treeFolder && !event.target.closest('input')) updateCurrentFolder(treeFolder);
+      const explorerItem = event.target.closest('[data-explorer-item]');
+      if (explorerItem && !event.target.closest('input')) { $$('.explorer-item').forEach((item) => item.classList.toggle('selected', item === explorerItem)); explorerState.selected = explorerItem; renderInspector(explorerItem); }
+      const issue = event.target.closest('[data-issue]');
+      if (issue) { switchView('issues'); }
+      const sectionLink = event.target.closest('[data-section-link]');
+      if (sectionLink) { const targetSection = sectionLink.dataset.sectionLink; switchView(targetSection); }
+    });
+    document.addEventListener('dblclick', (event) => {
+      const explorerItem = event.target.closest('[data-explorer-item][data-media-id]');
+      if (explorerItem && !event.target.closest('input, button')) toast(`复用现有媒体详情页 · /detail/${explorerItem.dataset.mediaId}`);
+    });
+    const filterRows = (filter) => { $$('[data-row]').forEach((row) => { const show = filter === 'all' || filter === 'problem' && row.dataset.problem === 'true' || filter === 'missing' && row.textContent.includes('文件缺失') || filter === 'unmatched' && row.textContent.includes('待刮削'); row.style.display = show ? '' : 'none'; }); };
+    $$('.filter-chip[data-filter]').forEach((button) => button.addEventListener('click', () => { $$('.filter-chip[data-filter]').forEach((item) => item.classList.remove('active')); button.classList.add('active'); filterRows(button.dataset.filter); }));
+    $('#explorerFilterButton').addEventListener('click', (event) => { event.stopPropagation(); $('#explorerFilterPopover').hidden = !$('#explorerFilterPopover').hidden; });
+    $('#explorerFilterPopover').addEventListener('click', (event) => event.stopPropagation());
+    $$('[data-explorer-filter]').forEach((input) => input.addEventListener('change', applyExplorerFilters));
+    $('#clearExplorerFilters').addEventListener('click', () => { $$('[data-explorer-filter]').forEach((input) => { input.checked = false; }); applyExplorerFilters(); });
+    $('#explorerSearch').addEventListener('input', applyExplorerFilters);
+    $('#explorerSort').addEventListener('change', () => { sortExplorerItems(); toast('已更新排序'); });
+    $$('.row-check').forEach((checkbox) => checkbox.addEventListener('change', refreshSelection));
+    $('#selectAll').addEventListener('change', (event) => { $$('.row-check').forEach((checkbox) => { checkbox.checked = event.target.checked; }); refreshSelection(); });
+    $$('.explorer-check').forEach((checkbox) => checkbox.addEventListener('change', updateExplorerSelection));
+    $('#explorerSelectAll').addEventListener('change', (event) => { $$('.explorer-check').forEach((checkbox) => { checkbox.checked = event.target.checked; }); updateExplorerSelection(); });
+    $('#singleFileInput').addEventListener('change', (event) => { importSingleFile(event.target.files?.[0]); event.target.value = ''; });
+    const dropImport = $('#dropImport');
+    ['dragenter', 'dragover'].forEach((type) => dropImport.addEventListener(type, (event) => { event.preventDefault(); dropImport.classList.add('is-dragging'); }));
+    ['dragleave', 'drop'].forEach((type) => dropImport.addEventListener(type, (event) => { event.preventDefault(); dropImport.classList.remove('is-dragging'); }));
+    dropImport.addEventListener('drop', (event) => { const file = event.dataTransfer?.files?.[0]; if (file) importSingleFile(file); });
+    $('#bulkScrape').addEventListener('click', openPreview); $('#bulkTag').addEventListener('click', openPreview); $('#bulkMove').addEventListener('click', openPreview); $('#bulkDelete').addEventListener('click', openPreview);
+    $('#taskButton').addEventListener('click', openTaskDrawer); $('#openTasks').addEventListener('click', openTaskDrawer); $('#drawerClose').addEventListener('click', closeDrawers); $('#previewClose').addEventListener('click', closeDrawers); $('#previewCancel').addEventListener('click', closeDrawers); $('#drawerBackdrop').addEventListener('click', closeDrawers); $('#previewApply').addEventListener('click', () => { closeDrawers(); toast('任务已加入队列，可在任务中心查看进度'); });
+    $('#operationClose').addEventListener('click', closeOperation); $('#operationCancel').addEventListener('click', closeOperation); $('#operationConfirm').addEventListener('click', confirmOperation); $('#operationModal').addEventListener('click', (event) => { if (event.target === $('#operationModal')) closeOperation(); });
+    $('#themeButton').addEventListener('click', () => { document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; });
+    $('#searchButton').addEventListener('click', () => toast('搜索将支持标题、路径、演员、标签和问题状态'));
+    $('#pauseAll').addEventListener('click', () => toast('演示：任务已暂停，生产环境将调用任务中心')); 
+    document.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); toast('搜索入口已打开'); } if (event.key === 'Escape') { closeDrawers(); closeOperation(); } });
+    $$('[data-window]').forEach((button) => button.addEventListener('click', () => toast(`${button.dataset.window}（设计稿演示）`)));
+    $('.explorer-center').insertAdjacentHTML('beforeend', '<div class="explorer-statusbar"><span id="explorerItemCount">0 个项目</span><span>当前目录：国产剧</span><span id="explorerSelectionInfo">连续滚动浏览</span></div>');
+    const demoExplorerFiles = [
+      { name: '庆余年 S02E15.mkv', size: '17.2 GB', type: '4K · MKV', modified: '昨天 18:56', status: '可播放', poster: 'backend/data/posters/23.jpg' },
+      { name: '庆余年 S02E14.mkv', size: '16.9 GB', type: '4K · MKV', modified: '昨天 18:12', status: '可播放', poster: 'backend/data/posters/23.jpg' },
+      { name: '庆余年 S02E13.mkv', size: '17.6 GB', type: '4K · MKV', modified: '昨天 17:40', status: '可播放', poster: 'backend/data/posters/23.jpg' },
+      { name: '繁花 S01E30.mkv', size: '8.4 GB', type: '1080P · MKV', modified: '周一 21:31', status: '可播放', poster: 'backend/data/posters/47.jpg' },
+      { name: '繁花 S01E29.mkv', size: '8.1 GB', type: '1080P · MKV', modified: '周一 20:46', status: '可播放', poster: 'backend/data/posters/47.jpg' },
+      { name: '漫长的季节 S01E12.mkv', size: '11.7 GB', type: '4K · MKV', modified: '上周日', status: '可播放', poster: 'backend/data/posters/48.jpg' },
+      { name: '漫长的季节 S01E11.mkv', size: '10.9 GB', type: '4K · MKV', modified: '上周日', status: '待同步', poster: 'backend/data/posters/48.jpg' },
+      { name: '三体 S01E30.mkv', size: '9.6 GB', type: '4K · MKV', modified: '上周六', status: '可播放', poster: 'backend/data/posters/50.jpg' },
+      { name: '三体 S01E29.mkv', size: '9.2 GB', type: '4K · MKV', modified: '上周六', status: '可播放', poster: 'backend/data/posters/50.jpg' }
+    ];
+    demoExplorerFiles.forEach(appendExplorerFile);
+    $$('[data-explorer-item]').forEach((item) => { item.dataset.sourceScopeItem = 'local'; });
+    appendSourceMedia({ scope: 'network', kind: 'network', mediaId: 49, name: '流浪地球 2', meta: '3 个播放源 · 4K', changed: '今天 09:42', status: '可播放', poster: 'backend/data/posters/49.jpg', path: '无本地文件 · 网络媒体', sources: 3, platform: '阿里云盘', localState: '无本地文件' });
+    appendSourceMedia({ scope: 'network', kind: 'network', mediaId: 50, name: '死侍', meta: '2 个播放源 · 1080P', changed: '昨天 22:16', status: '可播放', poster: 'backend/data/posters/50.jpg', path: '本地文件已删除 · 网络信息保留', sources: 2, platform: 'WebDAV', localState: '本地已删除' });
+    appendSourceMedia({ scope: 'network', kind: 'network', mediaId: 47, name: '无耻之徒 S01E02', meta: '本地 + 1 个网络源', changed: '昨天 18:40', status: '可播放', poster: 'backend/data/posters/47.jpg', path: '电视剧库 / 无耻之徒 / S01E02.mkv', sources: 1, platform: 'Jellyfin', localState: '已关联本地文件' });
+    appendSourceMedia({ scope: 'network', kind: 'network', mediaId: 48, name: '攻壳机动队', meta: '1 个播放源', changed: '3 天前', status: '来源失效', poster: 'backend/data/posters/48.jpg', path: '无本地文件 · 需要修复来源', sources: 1, platform: '远程直链', localState: '无本地文件' });
+    appendSourceMedia({ scope: 'missing', kind: 'missing', mediaId: 50, name: '死侍', meta: '本地缺失 · 网络可播', changed: '昨天 22:16', status: '本地缺失', poster: 'backend/data/posters/50.jpg', path: 'D:\\Media\\Movies\\Deadpool.mkv', sources: 2, platform: 'WebDAV', localState: '本地已删除' });
+    appendSourceMedia({ scope: 'missing', kind: 'missing', mediaId: 21, name: '庆余年 S02E16', meta: '路径变化 · 无网络源', changed: '昨天 19:41', status: '路径变化', poster: 'backend/data/posters/23.jpg', path: 'D:\\Media\\TV Shows\\2024\\国产剧\\庆余年\\S02E16.mkv', sources: 0, localState: '待重新关联' });
+    appendSourceMedia({ scope: 'missing', kind: 'missing', mediaId: 10, name: '银翼杀手 2049', meta: '仅保留媒体记录', changed: '上周四', status: '本地不可用', poster: 'backend/data/posters/10.jpg', path: 'E:\\Archive\\Blade Runner 2049.mkv', sources: 0, localState: '磁盘离线' });
+    $$('[data-explorer-item]').forEach(decorateExplorerItem);
+    refreshExplorerItemCount();
+    setExplorerSourceScope('local');
+    switchView('files', false);
+    if (window.lucide) window.lucide.createIcons();
+  </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+{
+	"/": [
+		"src/routes/+layout.ts",
+		"src/routes/+layout.ts"
+	],
+	"/detail/[id]": [
+		"src/routes/+layout.ts"
+	],
+	"/import": [
+		"src/routes/+layout.ts"
+	],
+	"/libraries": [
+		"src/routes/+layout.ts"
+	],
+	"/manage": [
+		"src/routes/+layout.ts"
+	],
+	"/media": [
+		"src/routes/+layout.ts"
+	],
+	"/player": [
+		"src/routes/+layout.ts"
+	],
+	"/series/[id]": [
+		"src/routes/+layout.ts"
+	],
+	"/settings": [
+		"src/routes/+layout.ts"
+	],
+	"/smart-folders": [
+		"src/routes/+layout.ts"
+	],
+	"/tags": [
+		"src/routes/+layout.ts"
+	]
+}

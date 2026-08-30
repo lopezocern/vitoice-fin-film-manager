@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Dev data (isolated dev database + generated assets)
+backend/data/
+
+# Node / Frontend
+node_modules/
+dist/
+frontend/dist/
+
+# Tauri / Rust
+src-tauri/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Smoke test databases
+backend/_smoke*.db
+
+# Databases & logs anywhere in the repo
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# WorkBuddy agent workspace (local memory/automations, not source code)
+.workbuddy/
+
+# Tool temp/share artifacts
+.tmp/
+.reasonix/
+.trae-html-share-packages/
+
+# Bundled ffmpeg binaries (too large for git, installed via script or manually)
+# Keep the directory but ignore the executables
+backend/bin/*.exe
+backend/bin/*.dll
+backend/bin/*.so
+backend/bin/*.dylib

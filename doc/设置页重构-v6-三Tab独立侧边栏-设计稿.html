@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vitoice · 设置页重构 v6（三 Tab 独立侧边栏）</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0d0d10;
+    --bg-elevated: #151519;
+    --bg-surface: #1c1c22;
+    --bg-hover: #25252c;
+    --bg-active: #2d2d36;
+    --ink: #f0f0f3;
+    --ink2: #a8a8b3;
+    --ink3: #6b6b76;
+    --ink4: #45454f;
+    --rule: #26262d;
+    --rule-light: #1e1e24;
+    --accent: #7b73ff;
+    --accent-hover: #8d87ff;
+    --accent-soft: rgba(123, 115, 255, 0.12);
+    --green: #4cc38a;
+    --green-soft: rgba(76, 195, 138, 0.12);
+    --red: #e56a6a;
+    --red-soft: rgba(229, 106, 106, 0.12);
+    --amber: #d9a75b;
+    --amber-soft: rgba(217, 167, 91, 0.12);
+    --radius: 8px;
+    --radius-sm: 6px;
+    --font: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow: hidden;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* ============ 顶层导航 ============ */
+  .topbar {
+    height: 44px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--rule);
+    gap: 10px;
+  }
+  .logo { display: flex; align-items: center; gap: 8px; padding: 0 6px; color: var(--ink); font-weight: 700; font-size: 13.5px; }
+  .logo-mark { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, #8d87ff, #5a4ee6); }
+  .tabs { display: flex; gap: 2px; margin-left: 8px; }
+  .tab {
+    display: flex; align-items: center; gap: 6px;
+    height: 30px; padding: 0 12px;
+    border: none; border-radius: var(--radius-sm);
+    background: none; color: var(--ink2);
+    font-family: var(--font); font-size: 12.5px;
+    cursor: pointer;
+  }
+  .tab:hover { background: var(--bg-hover); color: var(--ink); }
+  .tab.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .tab svg { width: 14px; height: 14px; }
+  .tab .changed {
+    margin-left: 4px; padding: 0 5px; height: 16px; line-height: 16px;
+    font-size: 10px; border-radius: 8px; background: var(--green-soft); color: var(--green);
+  }
+  .top-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .icon-btn {
+    width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+    border: none; border-radius: var(--radius-sm); background: none; color: var(--ink2); cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--bg-hover); color: var(--ink); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  .shell { flex: 1; display: flex; min-height: 0; }
+
+  /* ============ 应用侧边栏：随 Tab 整体切换 ============ */
+  .app-side {
+    width: 208px; flex-shrink: 0;
+    background: var(--bg-elevated);
+    border-right: 1px solid var(--rule);
+    display: flex;
+  }
+  .side-block { display: none; flex-direction: column; width: 100%; min-height: 0; }
+  .side-block.show { display: flex; }
+  .side-tag {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--bg-active); color: var(--ink2);
+    font-size: 10.5px; text-align: center; padding: 4px 0;
+    border-bottom: 1px solid var(--rule);
+    flex-shrink: 0;
+  }
+  .side-sec { font-size: 10.5px; color: var(--ink3); padding: 12px 12px 5px; }
+  .side-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6.5px 12px; color: var(--ink2); font-size: 12.5px;
+    width: 100%; border: none; background: none; font-family: var(--font); text-align: left;
+    cursor: pointer;
+  }
+  .side-item svg { width: 14px; height: 14px; opacity: .7; flex-shrink: 0; }
+  .side-item.active { color: var(--accent); background: var(--accent-soft); border-left: 2px solid var(--accent); padding-left: 10px; }
+  .lib-row { display: flex; align-items: center; gap: 7px; padding: 5px 12px 5px 22px; color: var(--ink3); font-size: 12px; }
+  .lib-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .lib-18 { margin-left: auto; font-size: 9px; padding: 0 4px; border-radius: 4px; background: var(--red-soft); color: var(--red); }
+  .side-foot { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--rule); font-size: 11px; color: var(--ink4); }
+
+  /* 设置侧边栏 */
+  .set-head { padding: 14px 16px 8px; }
+  .set-head h1 { font-size: 16px; font-weight: 700; }
+  .save-status { margin-top: 3px; font-size: 11px; color: var(--green); }
+  .cat-list { flex: 1; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; }
+  .cat-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 8px 10px;
+    border: none; border-radius: var(--radius-sm);
+    background: none; color: var(--ink2);
+    font-family: var(--font); font-size: 12.5px; text-align: left;
+    cursor: pointer;
+  }
+  .cat-item:hover { background: var(--bg-hover); color: var(--ink); }
+  .cat-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: inset 2px 0 0 var(--accent); }
+  .cat-item svg { width: 14px; height: 14px; flex-shrink: 0; }
+  .cat-label { flex: 1; min-width: 0; }
+  .cat-badge {
+    min-width: 18px; height: 18px; padding: 0 5px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9px; background: var(--bg-active); color: var(--ink2);
+    font-size: 10px; font-weight: 600;
+  }
+  .cat-item.active .cat-badge { background: var(--accent); color: #fff; }
+  .cat-foot { padding: 12px; border-top: 1px solid var(--rule); }
+  .primary-btn {
+    width: 100%; height: 34px;
+    border: none; border-radius: var(--radius);
+    background: var(--accent); color: #fff;
+    font-size: 12.5px; font-weight: 600; font-family: var(--font);
+    cursor: pointer;
+  }
+  .primary-btn:hover { background: var(--accent-hover); }
+
+  /* ============ 主内容区 ============ */
+  .content { flex: 1; min-width: 0; overflow-y: auto; background: var(--bg); }
+  .panel { display: none; min-height: 100%; }
+  .panel.show { display: block; animation: fadein .18s ease-out; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+  .page-pad { padding: 24px 30px; }
+
+  .notice {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 10px 12px; margin-bottom: 20px;
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+  .notice-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink2); }
+  .notice-item svg { width: 12px; height: 12px; color: var(--green); flex-shrink: 0; }
+  .notice-item b { color: var(--ink); font-weight: 600; }
+  .notice-tag {
+    padding: 2px 7px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 10px; font-weight: 600;
+  }
+
+  .content-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .content-head h2 { font-size: 19px; font-weight: 700; }
+  .content-sub { font-size: 12px; color: var(--ink3); margin-bottom: 18px; }
+
+  .stat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .stat-pill {
+    display: flex; align-items: baseline; gap: 5px;
+    padding: 7px 12px; border-radius: var(--radius);
+    background: var(--bg-surface); border: 1px solid var(--rule);
+  }
+  .stat-num { font-size: 15px; font-weight: 700; color: var(--ink); }
+  .stat-label { font-size: 11px; color: var(--ink3); }
+  .btn {
+    height: 32px; padding: 0 14px;
+    border: 1px solid var(--rule); border-radius: var(--radius);
+    background: var(--bg-surface); color: var(--ink2);
+    font-family: var(--font); font-size: 12.5px;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--bg-hover); color: var(--ink); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.primary:hover { background: var(--accent-hover); }
+
+  /* 资源库表格 */
+  .lib-table {
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    overflow: hidden;
+  }
+  .table-row, .table-head {
+    display: grid;
+    grid-template-columns: minmax(130px, 1.2fr) minmax(180px, 2fr) 74px 82px 74px 70px 150px;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+  }
+  .table-head {
+    height: 36px;
+    background: var(--bg-active);
+    color: var(--ink3);
+    font-size: 11px;
+  }
+  .table-row { min-height: 46px; border-bottom: 1px solid var(--rule-light); }
+  .table-row:last-child { border-bottom: none; }
+  .col-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .lib-name { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .restricted-tag { flex-shrink: 0; font-size: 9px; padding: 1px 5px; border-radius: 4px; background: var(--red-soft); color: var(--red); font-weight: 700; }
+  .path-text { font-family: var(--mono); font-size: 11.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; background: var(--bg-hover); color: var(--ink2); font-size: 11px; }
+  .scrape-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
+  .scrape-tag.av { background: var(--red-soft); color: var(--red); }
+  .watch-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; background: var(--bg-hover); color: var(--ink3); font-size: 11px; }
+  .watch-pill.on { background: var(--green-soft); color: var(--green); }
+  .count-num { font-family: var(--mono); font-size: 12px; color: var(--ink2); }
+  .action-group { display: flex; gap: 4px; justify-content: flex-end; }
+  .action-btn {
+    height: 26px; padding: 0 9px;
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+    background: var(--bg-hover); color: var(--ink2);
+    font-family: var(--font); font-size: 11.5px;
+    cursor: pointer;
+  }
+  .action-btn:hover { background: var(--bg-active); color: var(--ink); }
+  .action-btn.primary { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+  .action-btn.danger:hover { background: var(--red-soft); border-color: transparent; color: var(--red); }
+  .action-btn:disabled { opacity: .55; cursor: default; }
+
+  .page-foot { margin-top: 14px; padding: 12px 14px; border-radius: var(--radius); background: var(--bg-surface); border: 1px solid var(--rule); font-size: 11.5px; color: var(--ink3); }
+  .page-foot strong { color: var(--ink2); }
+
+  /* 其他分区占位 */
+  .placeholder-panel {
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 26px; margin-top: 10px;
+    border: 1px dashed var(--rule);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+  .placeholder-head { display: flex; align-items: center; gap: 10px; }
+  .placeholder-icon { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); }
+  .placeholder-icon svg { width: 16px; height: 16px; }
+  .placeholder-title { font-size: 13.5px; font-weight: 600; }
+  .placeholder-desc { font-size: 12px; color: var(--ink3); }
+  .ghost-rows { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .ghost { height: 44px; border-radius: var(--radius-sm); background: var(--bg-hover); opacity: .45; }
+  .keep-tag { align-self: flex-start; padding: 3px 8px; border-radius: 10px; background: var(--amber-soft); color: var(--amber); font-size: 10.5px; font-weight: 600; }
+
+  /* 媒体/管理 Tab 占位 */
+  .mock-panel {
+    min-height: 100%;
+    padding: 24px 30px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .mock-head { display: flex; align-items: baseline; gap: 10px; }
+  .mock-head h2 { font-size: 19px; font-weight: 700; }
+  .mock-head span { font-size: 12px; color: var(--ink3); }
+  .mock-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .mock-card { aspect-ratio: 2 / 3; border-radius: var(--radius); background: linear-gradient(160deg, #20202a, #14141a); border: 1px solid var(--rule); display: flex; flex-direction: column; justify-content: flex-end; padding: 10px; gap: 6px; }
+  .mock-line { height: 7px; border-radius: 4px; background: var(--bg-active); }
+  .mock-line.short { width: 55%; }
+  .mock-rows { display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: var(--radius); overflow: hidden; background: var(--bg-surface); }
+  .mock-row { height: 46px; border-bottom: 1px solid var(--rule-light); display: flex; align-items: center; gap: 10px; padding: 0 14px; color: var(--ink2); font-size: 12px; }
+  .mock-row:last-child { border-bottom: none; }
+  .mock-chip { height: 18px; width: 56px; border-radius: 9px; background: var(--bg-hover); }
+
+  @media (max-width: 1080px) {
+    .table-row, .table-head { grid-template-columns: minmax(120px, 1.2fr) minmax(140px, 1.8fr) 64px 76px 70px 62px 132px; }
+  }
+
+  /* ============ v6 视觉升级 ============ */
+  :root {
+    --bg: #0e1011;
+    --bg-elevated: #16181a;
+    --bg-surface: #1d2022;
+    --bg-hover: #25292c;
+    --bg-active: #2f3438;
+    --ink: #f3f5f5;
+    --ink2: #aeb4b6;
+    --ink3: #788084;
+    --ink4: #50575c;
+    --rule: #282d30;
+    --rule-light: #1f2426;
+    --accent: #3ed6a4;
+    --accent-hover: #59e0b5;
+    --accent-soft: rgba(62, 214, 164, 0.14);
+    --accent-glow: rgba(62, 214, 164, 0.24);
+    --green: #4ade80;
+    --green-soft: rgba(74, 222, 128, 0.14);
+    --red: #fb7185;
+    --red-soft: rgba(251, 113, 133, 0.14);
+    --amber: #f5b942;
+    --amber-soft: rgba(245, 185, 66, 0.14);
+    --font: "Plus Jakarta Sans", "Inter", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+    --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.3);
+  }
+
+  body {
+    font-size: 13px;
+    line-height: 1.6;
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .topbar {
+    height: 52px;
+    padding: 0 14px;
+    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    backdrop-filter: blur(16px) saturate(160%);
+  }
+
+  .logo { gap: 9px; font-size: 14px; letter-spacing: 0; }
+  .logo-mark {
+    width: 24px;
+    height: 24px;
+    display: block;
+    flex-shrink: 0;
+    border-radius: 7px;
+    background: none;
+    box-shadow: 0 3px 12px var(--accent-glow);
+  }
+
+  .tab {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    color: var(--ink3);
+  }
+  .tab:hover { background: var(--bg-hover); color: var(--ink); }
+  .tab.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .tab .changed { background: var(--accent-soft); color: var(--accent); }
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius);
+    color: var(--ink3);
+  }
+
+  .window-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 8px;
+    padding-left: 10px;
+    border-left: 1px solid var(--rule);
+  }
+  .win-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius);
+    background: none;
+    color: var(--ink3);
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
+  }
+  .win-btn:hover { background: var(--bg-hover); color: var(--ink); }
+  .win-btn.close:hover { background: var(--red); color: #fff; }
+  .win-btn svg { width: 13px; height: 13px; }
+
+  .app-side { width: 224px; }
+
+  .side-tag {
+    background: var(--bg-elevated);
+    color: var(--ink4);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .side-item,
+  .cat-item {
+    margin: 2px 8px;
+    width: auto;
+    border-radius: var(--radius);
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .side-item.active,
+  .cat-item.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+    border-left: 0;
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+
+  .set-head { padding: 16px 16px 10px; }
+  .set-head h1 { font-size: 18px; letter-spacing: 0; }
+  .save-status { color: var(--accent); }
+
+  .cat-list { padding: 8px; gap: 1px; }
+  .cat-item { padding: 8px 10px; }
+  .cat-item.active .cat-badge { background: var(--accent); color: #0c0e0e; }
+
+  .primary-btn {
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #0b0d0d;
+    font-weight: 700;
+    box-shadow: 0 6px 18px var(--accent-glow);
+    transition: transform 140ms ease, background 140ms ease, box-shadow 140ms ease;
+  }
+  .primary-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+
+  .content { background: var(--bg); }
+  .page-pad { padding: 28px 34px; }
+
+  .notice {
+    border-radius: var(--radius);
+    border-left: 2px solid var(--accent);
+    background: var(--bg-surface);
+  }
+
+  .stat-pill {
+    background: var(--bg-elevated);
+    border-color: var(--rule);
+  }
+
+  .btn {
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+  }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0b0d0d;
+  }
+
+  .lib-table {
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .table-head { background: var(--bg-active); color: var(--ink3); }
+  .table-row { transition: background 140ms ease; }
+  .table-row:hover { background: var(--bg-hover); }
+  .table-row:last-child { border-bottom: none; }
+
+  .badge,
+  .watch-pill {
+    background: var(--bg-hover);
+  }
+
+  .mock-card {
+    border-radius: var(--radius);
+    background: linear-gradient(160deg, #1b2724, #121619);
+    border-color: var(--rule);
+  }
+  .mock-chip { background: var(--bg-hover); }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ============ 深浅色开关 ============ */
+  .theme-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 48px;
+    height: 26px;
+    padding: 0 7px;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: var(--bg-hover);
+    color: var(--ink3);
+    cursor: pointer;
+    transition: border-color 150ms ease, background 150ms ease;
+  }
+  .theme-switch:hover { border-color: var(--ink3); }
+  .theme-switch svg { position: relative; z-index: 1; width: 13px; height: 13px; }
+  .theme-switch .sun { color: var(--amber); }
+  .theme-switch .moon { color: var(--ink3); }
+  .theme-switch-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 2px 8px var(--accent-glow);
+    transition: transform 180ms ease, background 180ms ease;
+  }
+
+  [data-theme='light'] {
+    --bg: #f6f8f7;
+    --bg-elevated: #ffffff;
+    --bg-surface: #eef2f0;
+    --bg-hover: #e5eae7;
+    --bg-active: #dbe2de;
+    --ink: #17201d;
+    --ink2: #55615d;
+    --ink3: #7d8984;
+    --ink4: #adb6b2;
+    --rule: #dfe5e2;
+    --rule-light: #edf1ef;
+    --accent: #0ba881;
+    --accent-hover: #0e9473;
+    --accent-soft: rgba(11, 168, 129, 0.12);
+    --accent-glow: rgba(11, 168, 129, 0.18);
+    --green: #16a34a;
+    --green-soft: rgba(22, 163, 74, 0.12);
+    --red: #dc2626;
+    --red-soft: rgba(220, 38, 38, 0.10);
+    --amber: #c77d00;
+    --amber-soft: rgba(199, 125, 0, 0.12);
+    --shadow-sm: 0 1px 2px rgba(20, 30, 26, 0.06);
+    --shadow-md: 0 12px 30px rgba(20, 30, 26, 0.12);
+  }
+
+  [data-theme='light'] body {
+    background: var(--bg);
+  }
+
+  [data-theme='light'] .topbar {
+    background: rgba(255, 255, 255, 0.9);
+  }
+
+  [data-theme='light'] .theme-switch-thumb {
+    transform: translateX(22px);
+  }
+  [data-theme='light'] .theme-switch .sun {
+    color: var(--ink3);
+  }
+  [data-theme='light'] .theme-switch .moon {
+    color: var(--accent);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 顶层导航：三个 Tab -->
+  <header class="topbar">
+    <div class="logo">
+      <svg class="logo-mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="vitoice-mark" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#3ed6a4"/>
+            <stop offset="0.55" stop-color="#22b88b"/>
+            <stop offset="1" stop-color="#0e9473"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#vitoice-mark)"/>
+        <path d="M19 19.5v25l20.5-12.5z" fill="#f4fffb"/>
+        <rect x="44" y="24" width="4" height="16" rx="2" fill="#f4fffb"/>
+        <rect x="52" y="19" width="4" height="26" rx="2" fill="#f4fffb" opacity="0.78"/>
+      </svg>
+      <span>vitoice</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab" data-tab="media">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1.5"></rect><path d="M2 6h12M5 3v10M11 3v10" stroke-opacity="0.5"></path></svg>
+        <span>媒体</span>
+      </button>
+      <button class="tab" data-tab="manage">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h6M2 8h9M2 12h5" stroke-linecap="round"></path><circle cx="12" cy="4" r="1.8"></circle><circle cx="11" cy="8" r="1.8"></circle><circle cx="10" cy="12" r="1.8"></circle></svg>
+        <span>管理</span>
+      </button>
+      <button class="tab active" data-tab="settings">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"></circle><path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5L3.4 3.4"></path></svg>
+        <span>设置</span>
+        <span class="changed">含资源库</span>
+      </button>
+    </nav>
+    <div class="top-right">
+      <button class="theme-switch" id="theme-switch" role="switch" aria-checked="false" title="切换深浅色" aria-label="切换深浅色">
+        <svg class="sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="2.7"></circle><path d="M8 1.5v1.4M8 13.1v1.4M1.5 8h1.4M13.1 8h1.4M3.4 3.4l1 1M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1" stroke-linecap="round"></path></svg>
+        <svg class="moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M13.5 9.5A6 6 0 0 1 6.5 2.5a6 6 0 1 0 7 7z" stroke-linejoin="round"></path></svg>
+        <span class="theme-switch-thumb"></span>
+      </button>
+      <button class="icon-btn" title="任务中心">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"></circle><path d="M8 5v3.2l2 1.2" stroke-linecap="round"></path></svg>
+      </button>
+      <div class="window-controls">
+        <button class="win-btn" title="最小化" aria-label="最小化">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="3" y1="6" x2="9" y2="6" stroke-linecap="round"></line></svg>
+        </button>
+        <button class="win-btn" title="最大化 / 还原" aria-label="最大化 / 还原">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="6" height="6" rx="1"></rect></svg>
+        </button>
+        <button class="win-btn close" title="关闭" aria-label="关闭">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="3.5" y1="3.5" x2="8.5" y2="8.5" stroke-linecap="round"></line><line x1="8.5" y1="3.5" x2="3.5" y2="8.5" stroke-linecap="round"></line></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="shell">
+    <!-- 应用侧边栏：随 Tab 整体切换 -->
+    <aside class="app-side">
+      <!-- 媒体侧边栏 -->
+      <div class="side-block" data-side="media">
+        <div class="side-tag">媒体 Tab · 媒体侧边栏</div>
+        <div class="side-sec">库</div>
+        <div class="side-item active">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5h12v8H2z" stroke-linejoin="round"></path><path d="M2 6.5h12" stroke-opacity=".5"></path></svg>
+          全部媒体
+        </div>
+        <div class="lib-row"><span class="lib-dot" style="background:#3ed6a4"></span>柯南</div>
+        <div class="lib-row"><span class="lib-dot" style="background:#4ade80"></span>哈利波特</div>
+        <div class="lib-row"><span class="lib-dot" style="background:#fb7185"></span>AZV<span class="lib-18">18+</span></div>
+        <div class="lib-row"><span class="lib-dot" style="background:#f5b942"></span>漫威</div>
+        <div class="side-sec">视图</div>
+        <div class="side-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"></circle><path d="M8 4.5V8l2.4 1.5" stroke-linecap="round"></path></svg>
+          继续观看
+        </div>
+        <div class="side-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2.5l1.7 3.4 3.8.5-2.7 2.7.6 3.8-3.4-1.8-3.4 1.8.6-3.8L2.5 6.4l3.8-.5z" stroke-linejoin="round"></path></svg>
+          我的收藏
+        </div>
+        <div class="side-sec">标签</div>
+        <div class="side-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 8l6-6h6v6l-6 6z" stroke-linejoin="round"></path></svg>
+          动画
+        </div>
+        <div class="side-foot">媒体 Tab 保持现有侧边栏</div>
+      </div>
+
+      <!-- 管理侧边栏 -->
+      <div class="side-block" data-side="manage">
+        <div class="side-tag">管理 Tab · 管理侧边栏</div>
+        <div class="side-sec">管理</div>
+        <div class="side-item active">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5h12v9H2z" stroke-linejoin="round"></path><path d="M2 6.5h12M6 3.5v9" stroke-opacity=".5"></path></svg>
+          概览
+        </div>
+        <div class="side-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4h4v4H2zM10 4h4v4h-4zM2 10h4v2H2zM10 10h4v2h-4z" stroke-linejoin="round"></path></svg>
+          媒体管理
+        </div>
+        <div class="side-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 8l6-6h6v6l-6 6z" stroke-linejoin="round"></path></svg>
+          标签管理
+        </div>
+        <div class="side-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z" stroke-linejoin="round"></path></svg>
+          智能文件夹
+        </div>
+        <div class="side-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4h12l-1.2 9H3.2z" stroke-linejoin="round"></path><path d="M6 4V2.8A.8.8 0 0 1 6.8 2h2.4a.8.8 0 0 1 .8.8V4" stroke-linecap="round"></path></svg>
+          回收站
+        </div>
+        <div class="side-foot">管理 Tab 保持现有侧边栏</div>
+      </div>
+
+      <!-- 设置侧边栏：直接作为设置导航 -->
+      <div class="side-block show" data-side="settings">
+        <div class="side-tag">设置 Tab · 设置侧边栏</div>
+        <div class="set-head">
+          <h1>设置</h1>
+          <div class="save-status">已保存</div>
+        </div>
+        <nav class="cat-list">
+          <button class="cat-item active" data-cat="libraries">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z" stroke-linejoin="round"></path></svg>
+            <span class="cat-label">资源库</span>
+            <span class="cat-badge">6</span>
+          </button>
+          <button class="cat-item" data-cat="appearance">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"></circle><circle cx="8" cy="8" r="2.5"></circle></svg>
+            <span class="cat-label">外观</span>
+          </button>
+          <button class="cat-item" data-cat="content">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"></rect><path d="M6 2.5v11M2.5 6h11" stroke-opacity=".5"></path></svg>
+            <span class="cat-label">内容管理</span>
+          </button>
+          <button class="cat-item" data-cat="tools">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13.5 6.5l-7 7-3.5-1 1-3.5 7-7a2 2 0 0 1 2.5 2.5z" stroke-linejoin="round"></path><path d="M9 4l3 3" stroke-opacity=".5"></path></svg>
+            <span class="cat-label">外部工具</span>
+          </button>
+          <button class="cat-item" data-cat="thumbnail">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="12" height="11" rx="1.5"></rect><circle cx="6" cy="6.5" r="1.2"></circle><path d="M2 11.5l4-3 3 2.5 3-2 2 1.5" stroke-linecap="round"></path></svg>
+            <span class="cat-label">缩略图</span>
+          </button>
+          <button class="cat-item" data-cat="ai">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.8l1.6 4.6 4.6 1.6-4.6 1.6L8 14.2l-1.6-4.6L1.8 8l4.6-1.6z" stroke-linejoin="round"></path></svg>
+            <span class="cat-label">AI 配置</span>
+          </button>
+          <button class="cat-item" data-cat="scrape">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14" stroke-linecap="round"></path></svg>
+            <span class="cat-label">刮削</span>
+          </button>
+          <button class="cat-item" data-cat="player">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"></circle><path d="M6.5 5.5l4 2.5-4 2.5z" fill="currentColor" stroke="none"></path></svg>
+            <span class="cat-label">播放器</span>
+          </button>
+          <button class="cat-item" data-cat="subtitle">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="12" height="10" rx="1.5"></rect><path d="M4.5 10h3M8 10h3.5" stroke-linecap="round"></path></svg>
+            <span class="cat-label">字幕</span>
+          </button>
+          <button class="cat-item" data-cat="database">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><ellipse cx="8" cy="3.5" rx="5.5" ry="2"></ellipse><path d="M2.5 3.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9"></path><path d="M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2" stroke-opacity=".5"></path></svg>
+            <span class="cat-label">数据库</span>
+          </button>
+          <button class="cat-item" data-cat="about">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.2V11M8 5.2v.2" stroke-linecap="round"></path></svg>
+            <span class="cat-label">关于</span>
+          </button>
+        </nav>
+        <div class="cat-foot">
+          <button class="primary-btn">保存全部设置</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="content">
+      <!-- 媒体 Tab 内容占位 -->
+      <div class="panel" data-panel="media">
+        <div class="mock-panel">
+          <div class="mock-head"><h2>全部媒体</h2><span>媒体 Tab 仅示意：侧边栏与内容均保持现状</span></div>
+          <div class="mock-wall">
+            <div class="mock-card"><div class="mock-line"></div><div class="mock-line short"></div></div>
+            <div class="mock-card"><div class="mock-line"></div><div class="mock-line short"></div></div>
+            <div class="mock-card"><div class="mock-line"></div><div class="mock-line short"></div></div>
+            <div class="mock-card"><div class="mock-line"></div><div class="mock-line short"></div></div>
+            <div class="mock-card"><div class="mock-line"></div><div class="mock-line short"></div></div>
+            <div class="mock-card"><div class="mock-line"></div><div class="mock-line short"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 管理 Tab 内容占位 -->
+      <div class="panel" data-panel="manage">
+        <div class="mock-panel">
+          <div class="mock-head"><h2>概览</h2><span>管理 Tab 仅示意：侧边栏与内容均保持现状</span></div>
+          <div class="mock-rows">
+            <div class="mock-row"><span class="mock-chip"></span><span>媒体管理条目占位</span></div>
+            <div class="mock-row"><span class="mock-chip"></span><span>标签管理条目占位</span></div>
+            <div class="mock-row"><span class="mock-chip"></span><span>回收站条目占位</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 设置 Tab 内容 -->
+      <div class="panel show" data-panel="settings">
+        <div class="page-pad">
+          <div class="notice">
+            <span class="notice-tag">本稿需求落点</span>
+            <span class="notice-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.2 3L13 5" stroke-linecap="round" stroke-linejoin="round"></path></svg>应用侧边栏直接切换为对应 Tab 的侧边栏，<b>三 Tab 各是各的</b></span>
+            <span class="notice-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.2 3L13 5" stroke-linecap="round" stroke-linejoin="round"></path></svg>设置 Tab：侧边栏即<b>设置导航</b>，资源库为第一子功能默认选中</span>
+            <span class="notice-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.2 3L13 5" stroke-linecap="round" stroke-linejoin="round"></path></svg>原资源库页功能整体移入，<b>/libraries</b> 并入 <b>/settings</b></span>
+          </div>
+
+          <!-- 资源库子功能 -->
+          <div class="panel show" id="panel-libraries">
+            <div class="content-head">
+              <h2>资源库</h2>
+            </div>
+            <div class="content-sub">管理所有媒体资源库的扫描、刮削与监控配置。</div>
+            <div class="stat-row">
+              <div class="stat-pill"><span class="stat-num">6</span><span class="stat-label">个库</span></div>
+              <div class="stat-pill"><span class="stat-num">1,102</span><span class="stat-label">个媒体</span></div>
+              <button class="btn primary" style="margin-left:auto">+ 新建库</button>
+            </div>
+            <div class="lib-table">
+              <div class="table-head">
+                <div>名称</div>
+                <div>路径</div>
+                <div>类型</div>
+                <div>刮削模式</div>
+                <div>监控</div>
+                <div>媒体数</div>
+                <div style="text-align:right">操作</div>
+              </div>
+              <div class="table-row">
+                <div class="col-name"><span class="lib-dot" style="background:#3ed6a4"></span><span class="lib-name">柯南</span></div>
+                <div class="path-text">D:\media\conan</div>
+                <div><span class="badge">视频</span></div>
+                <div><span class="scrape-tag">电视剧</span></div>
+                <div><span class="watch-pill on">已启用</span></div>
+                <div><span class="count-num">296</span></div>
+                <div class="action-group"><button class="action-btn">编辑</button><button class="action-btn primary">扫描</button><button class="action-btn danger">删除</button></div>
+              </div>
+              <div class="table-row">
+                <div class="col-name"><span class="lib-dot" style="background:#4ade80"></span><span class="lib-name">哈利波特</span></div>
+                <div class="path-text">D:\media\harry</div>
+                <div><span class="badge">视频</span></div>
+                <div><span class="scrape-tag">电影</span></div>
+                <div><span class="watch-pill on">已启用</span></div>
+                <div><span class="count-num">8</span></div>
+                <div class="action-group"><button class="action-btn">编辑</button><button class="action-btn primary">扫描</button><button class="action-btn danger">删除</button></div>
+              </div>
+              <div class="table-row">
+                <div class="col-name"><span class="lib-dot" style="background:#fb7185"></span><span class="lib-name">AZV</span><span class="restricted-tag">18+</span></div>
+                <div class="path-text">D:\media\azv</div>
+                <div><span class="badge">视频</span></div>
+                <div><span class="scrape-tag av">AV</span></div>
+                <div><span class="watch-pill on">已启用</span></div>
+                <div><span class="count-num">714</span></div>
+                <div class="action-group"><button class="action-btn">编辑</button><button class="action-btn primary" disabled>扫描中…</button><button class="action-btn danger">删除</button></div>
+              </div>
+              <div class="table-row">
+                <div class="col-name"><span class="lib-dot" style="background:#f5b942"></span><span class="lib-name">漫威</span></div>
+                <div class="path-text">D:\media\marvel</div>
+                <div><span class="badge">视频</span></div>
+                <div><span class="scrape-tag">电影</span></div>
+                <div><span class="watch-pill">未启用</span></div>
+                <div><span class="count-num">61</span></div>
+                <div class="action-group"><button class="action-btn">编辑</button><button class="action-btn primary">扫描</button><button class="action-btn danger">删除</button></div>
+              </div>
+              <div class="table-row">
+                <div class="col-name"><span class="lib-dot" style="background:#67d2e8"></span><span class="lib-name">动作片库</span></div>
+                <div class="path-text">D:\media\action</div>
+                <div><span class="badge">视频</span></div>
+                <div><span class="scrape-tag">电影</span></div>
+                <div><span class="watch-pill on">已启用</span></div>
+                <div><span class="count-num">18</span></div>
+                <div class="action-group"><button class="action-btn">编辑</button><button class="action-btn primary">扫描</button><button class="action-btn danger">删除</button></div>
+              </div>
+              <div class="table-row">
+                <div class="col-name"><span class="lib-dot" style="background:#f6ad55"></span><span class="lib-name">纪录片库</span></div>
+                <div class="path-text">D:\media\doc</div>
+                <div><span class="badge">视频</span></div>
+                <div><span class="scrape-tag">电视剧</span></div>
+                <div><span class="watch-pill">未启用</span></div>
+                <div><span class="count-num">5</span></div>
+                <div class="action-group"><button class="action-btn">编辑</button><button class="action-btn primary">扫描</button><button class="action-btn danger">删除</button></div>
+              </div>
+            </div>
+            <div class="page-foot">
+              <strong>说明：</strong>删除资源库仅会从软件记录中移除该库及其媒体索引，不会删除磁盘上的实际文件。删除时可选择是否同时清理因此变空的标签（内置标签不会被删除）。
+            </div>
+          </div>
+
+          <!-- 其他分区占位 -->
+          <div class="panel" id="panel-other">
+            <div class="content-head">
+              <h2 id="other-title">外观</h2>
+            </div>
+            <div class="content-sub" id="other-sub">界面显示与主题。</div>
+            <div class="placeholder-panel">
+              <div class="placeholder-head">
+                <span class="placeholder-icon">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.8l1.6 4.6 4.6 1.6-4.6 1.6L8 14.2l-1.6-4.6L1.8 8l4.6-1.6z" stroke-linejoin="round"></path></svg>
+                </span>
+                <div>
+                  <div class="placeholder-title" id="other-name">外观</div>
+                  <div class="placeholder-desc">该分区沿用当前设置页内容，本稿只重排导航结构，不重复设计内部设置项。</div>
+                </div>
+              </div>
+              <span class="keep-tag">原设置页分区内容原样保留</span>
+              <div class="ghost-rows">
+                <div class="ghost"></div>
+                <div class="ghost"></div>
+                <div class="ghost"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+  const CATS = {
+    libraries: ['资源库', '管理所有媒体资源库的扫描、刮削与监控配置。'],
+    appearance: ['外观', '界面显示与主题。'],
+    content: ['内容管理', '内容显示与隔离策略。'],
+    tools: ['外部工具', '外部程序集成。'],
+    thumbnail: ['缩略图', '缩略图生成参数。'],
+    ai: ['AI 配置', 'AI 打标与刮削。'],
+    scrape: ['刮削', '数据源与刮削策略。'],
+    player: ['播放器', '播放器行为设置。'],
+    subtitle: ['字幕', '字幕加载与样式。'],
+    database: ['数据库', '数据库路径与维护。'],
+    about: ['关于', '版本与项目信息。']
+  };
+
+  function swTab(t) {
+    document.querySelectorAll('.tab').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.tab === t);
+    });
+    document.querySelectorAll('.side-block').forEach(function (b) {
+      b.classList.toggle('show', b.dataset.side === t);
+    });
+    document.querySelectorAll('.content > .panel').forEach(function (p) {
+      p.classList.toggle('show', p.dataset.panel === t);
+    });
+  }
+
+  function swCat(c) {
+    document.querySelectorAll('.cat-item').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.cat === c);
+    });
+    var isLib = c === 'libraries';
+    document.getElementById('panel-libraries').classList.toggle('show', isLib);
+    var other = document.getElementById('panel-other');
+    other.classList.toggle('show', !isLib);
+    if (!isLib) {
+      document.getElementById('other-title').textContent = CATS[c][0];
+      document.getElementById('other-sub').textContent = CATS[c][1];
+      document.getElementById('other-name').textContent = CATS[c][0];
+    }
+  }
+
+  document.querySelectorAll('.tab').forEach(function (b) {
+    b.addEventListener('click', function () { swTab(b.dataset.tab); });
+  });
+  document.querySelectorAll('.cat-item').forEach(function (b) {
+    b.addEventListener('click', function () { swCat(b.dataset.cat); });
+  });
+
+  var themeSwitch = document.getElementById('theme-switch');
+  var htmlRoot = document.documentElement;
+  var currentTheme = 'dark';
+  function applyTheme(theme) {
+    htmlRoot.setAttribute('data-theme', theme);
+    themeSwitch.setAttribute('aria-checked', theme === 'light' ? 'true' : 'false');
+  }
+  themeSwitch.addEventListener('click', function () {
+    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(currentTheme);
+  });
+  applyTheme(currentTheme);
+</script>
+</body>
+</html>

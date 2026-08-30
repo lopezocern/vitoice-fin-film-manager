@@ -1,0 +1,1 @@
+import{B as a,c as e}from"./Bzpi8Sg9.js";const p={list:async(s,r=1,t=60)=>{const i={page:r,page_size:t};return s&&(i.library_id=s),e.get("/series",i)},get:async s=>e.get(`/series/${s}`),getEpisodeNav:async s=>e.get(`/series/episodes/${s}/nav`),posterUrl:s=>`${a}/series/${s}/poster`};export{p as s};

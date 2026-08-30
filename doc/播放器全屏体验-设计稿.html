@@ -1,0 +1,1510 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vitoice 播放器 / 全屏观看体验设计稿</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   vitoice 播放器 — 全屏观看体验设计稿 v1
+   基于真实播放器功能（player/+page.svelte + ProgressBar/OrganizeStrip/
+   SubtitleTrack/SegmentDialog/QuickTagDialog），设计令牌对齐 app.css。
+   播放器恒定深色（真实产品中播放器为 #000 全屏），不随应用浅色主题变化。
+   ═══════════════════════════════════════════════════════════════ */
+:root{
+  /* 舞台（真实播放器背景） */
+  --stage:#000;
+  /* 浮层表面（半透明 + 毛玻璃） */
+  --overlay:rgba(10,12,14,.68);
+  --overlay-strong:rgba(13,15,17,.94);
+  --overlay-soft:rgba(255,255,255,.06);
+  /* 文字层次 */
+  --ink:#f4f7f6;
+  --ink-2:rgba(244,247,246,.72);
+  --ink-3:rgba(244,247,246,.48);
+  --ink-4:rgba(244,247,246,.28);
+  /* 边框 */
+  --line:rgba(255,255,255,.1);
+  --line-strong:rgba(255,255,255,.18);
+  /* 语义色（对齐 app.css） */
+  --accent:#3ed6a4;
+  --accent-soft:rgba(62,214,164,.16);
+  --amber:#f5b942;
+  --amber-soft:rgba(245,185,66,.16);
+  --danger:#fb7185;
+  --danger-soft:rgba(251,113,133,.16);
+  /* 片段色板（真实 SegmentDialog COLORS） */
+  --c1:#635bff; --c2:#f59e0b; --c3:#34c759; --c4:#ff3b30; --c5:#ff2d55; --c6:#af52de; --c7:#5ac8fa; --c8:#8e8e93;
+  /* 圆角 / 动效 */
+  --radius:8px; --radius-lg:12px; --radius-full:999px;
+  --ease:cubic-bezier(.16,1,.3,1);
+  --dur:180ms;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#050607;overflow:hidden}
+body{font:13px/1.5 Inter,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+svg{display:block}
+.ico{width:18px;height:18px;flex-shrink:0}
+.ico.sm{width:15px;height:15px}
+.ico.lg{width:22px;height:22px}
+
+/* ═════════════ 舞台 ═════════════ */
+.stage{
+  position:fixed;inset:0;background:var(--stage);overflow:hidden;
+  user-select:none;-webkit-user-select:none;
+}
+.stage.cursor-hide{cursor:none}
+
+/* —— 视频画面（设计稿占位：CSS 电影感场景，真实产品为 <video>） —— */
+.video-frame{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(90% 55% at 72% 16%, rgba(255,214,150,.38), transparent 62%),
+    radial-gradient(60% 40% at 30% 0%, rgba(148,196,255,.14), transparent 60%),
+    linear-gradient(180deg,#0c1626 0%,#15263a 30%,#22405a 55%,#2c5a63 74%,#101b18 100%);
+}
+/* 月亮 */
+.video-frame::before{
+  content:"";position:absolute;left:68%;top:13%;width:120px;height:120px;border-radius:50%;
+  background:radial-gradient(circle at 40% 35%, #fff7e0 0%, #ffd98a 42%, rgba(255,190,110,.18) 68%, transparent 72%);
+  box-shadow:0 0 90px 26px rgba(255,215,140,.22);
+}
+/* 树影层（同详情页 Hero 树影手法：多层 radial-gradient 椭圆） */
+.video-frame::after{
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(9% 14% at 8% 96%, #0a1412 0 34%, transparent 36%),
+    radial-gradient(7% 12% at 17% 94%, #0a1412 0 32%, transparent 34%),
+    radial-gradient(11% 16% at 27% 98%, #0a1412 0 36%, transparent 38%),
+    radial-gradient(6% 11% at 36% 93%, #0b1714 0 34%, transparent 36%),
+    radial-gradient(10% 15% at 46% 97%, #0a1412 0 36%, transparent 38%),
+    radial-gradient(7% 12% at 56% 92%, #0b1714 0 33%, transparent 35%),
+    radial-gradient(12% 17% at 67% 97%, #0a1412 0 37%, transparent 39%),
+    radial-gradient(8% 13% at 78% 93%, #0b1714 0 34%, transparent 36%),
+    radial-gradient(10% 15% at 89% 97%, #0a1412 0 36%, transparent 38%),
+    radial-gradient(7% 11% at 96% 92%, #0b1714 0 34%, transparent 36%),
+    radial-gradient(80% 30% at 50% 100%, #0b1613 0 60%, transparent 100%);
+}
+/* 雾 / 光斑 */
+.video-frame .mist{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(42% 18% at 22% 62%, rgba(180,220,230,.16), transparent 70%),
+    radial-gradient(50% 20% at 78% 55%, rgba(200,180,220,.12), transparent 70%);
+}
+/* 胶片颗粒（SVG feTurbulence data-uri） */
+.video-frame .grain{
+  position:absolute;inset:0;opacity:.07;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+}
+/* 暗角 */
+.video-frame .vig{position:absolute;inset:0;background:radial-gradient(120% 100% at 50% 50%, transparent 55%, rgba(0,0,0,.55) 100%)}
+
+/* —— 字幕轨道（底部居中） —— */
+.subtitle{
+  position:absolute;left:50%;bottom:15%;transform:translateX(-50%);
+  max-width:min(78%,760px);text-align:center;
+  font-size:clamp(16px,2vw,22px);line-height:1.55;color:#fff;
+  text-shadow:0 2px 6px rgba(0,0,0,.85),0 0 2px rgba(0,0,0,.9);
+  padding:2px 14px;border-radius:4px;
+}
+
+/* —— 长按 2× 徽标 —— */
+.speed-badge{
+  position:absolute;top:18%;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:8px;
+  background:rgba(8,10,12,.72);backdrop-filter:blur(12px);
+  border:1px solid var(--line);border-radius:var(--radius-full);
+  padding:7px 18px;font-size:13px;font-weight:600;letter-spacing:.02em;
+  box-shadow:0 8px 28px rgba(0,0,0,.4);
+}
+.speed-badge .bx{width:16px;height:16px;color:var(--amber)}
+.speed-badge b{color:var(--amber)}
+
+/* —— 缓冲指示 —— */
+.spinner{
+  position:absolute;left:50%;top:50%;width:56px;height:56px;transform:translate(-50%,-50%);
+  border-radius:50%;
+  border:3px solid rgba(255,255,255,.12);border-top-color:var(--accent);
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:translate(-50%,-50%) rotate(360deg)}}
+
+/* —— 限制内容遮罩 —— */
+.restricted-mask{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  background:radial-gradient(80% 70% at 50% 50%, rgba(10,8,12,.62), rgba(2,2,4,.92));
+}
+.restricted-mask .ri{font-size:44px;filter:grayscale(.2)}
+.restricted-mask .rt{font-size:15px;letter-spacing:.3em;color:rgba(244,247,246,.75)}
+
+/* ═════════════ 顶部栏 ═════════════ */
+.top-bar{
+  position:absolute;top:0;left:0;right:0;height:56px;
+  display:flex;align-items:center;gap:10px;padding:0 12px;
+  background:linear-gradient(180deg, rgba(0,0,0,.62) 0%, rgba(0,0,0,.28) 70%, transparent 100%);
+  opacity:0;transform:translateY(-8px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);
+  pointer-events:none;
+}
+.stage.show-ui .top-bar,.stage.scene-paused .top-bar{opacity:1;transform:none;pointer-events:auto}
+.top-btn{
+  width:34px;height:34px;border-radius:var(--radius);display:grid;place-items:center;
+  color:var(--ink-2);transition:background var(--dur),color var(--dur);-webkit-app-region:no-drag;
+}
+.top-btn:hover{background:var(--overlay-soft);color:#fff}
+.top-title{
+  font-size:13.5px;font-weight:600;color:rgba(244,247,246,.92);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42%;
+  -webkit-app-region:drag;
+}
+.top-title .subtle{color:var(--ink-3);font-weight:400;margin-left:8px;font-size:12px}
+.mark-chip{
+  display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 11px;margin-left:2px;
+  background:var(--overlay);border:1px solid rgba(245,185,66,.4);border-radius:var(--radius-full);
+  font-size:12px;color:#ffdf9e;white-space:nowrap;
+}
+.mark-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber)}
+.mark-chip .muted{color:rgba(255,223,158,.55)}
+.top-spacer{flex:1;-webkit-app-region:drag}
+.win-controls{display:flex;gap:2px}
+.win-btn{width:42px;height:34px;border-radius:6px;display:grid;place-items:center;color:var(--ink-3);transition:background var(--dur),color var(--dur)}
+.win-btn:hover{background:var(--overlay-soft);color:#fff}
+.win-btn.close:hover{background:#d45159;color:#fff}
+
+/* —— 快捷键帮助按钮（建议新增 ⭐） —— */
+.help-btn{width:34px;height:34px;border-radius:var(--radius);display:grid;place-items:center;color:var(--ink-3)}
+.help-btn:hover{background:var(--overlay-soft);color:var(--accent)}
+
+/* ═════════════ 中央播放按钮 ═════════════ */
+.play-center{
+  position:absolute;left:50%;top:50%;width:88px;height:88px;border-radius:50%;
+  display:grid;place-items:center;
+  background:rgba(12,14,16,.55);backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.16);
+  color:#fff;box-shadow:0 18px 50px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1);
+  opacity:0;transform:translate(-50%,-50%) scale(.92);pointer-events:none;
+  transition:opacity 200ms var(--ease),transform 200ms var(--ease),background var(--dur);
+}
+.stage.scene-paused .play-center{opacity:1;transform:translate(-50%,-50%) scale(1);pointer-events:auto}
+.play-center:hover{background:rgba(62,214,164,.24);border-color:rgba(62,214,164,.5)}
+.play-center .tri{width:0;height:0;margin-left:6px;border-top:17px solid transparent;border-bottom:17px solid transparent;border-left:26px solid #fff}
+
+/* ═════════════ 底部控制层 ═════════════ */
+.bottom-controls{
+  position:absolute;left:0;right:0;bottom:0;padding:14px 20px 12px;
+  background:linear-gradient(0deg, rgba(0,0,0,.66) 0%, rgba(0,0,0,.3) 62%, transparent 100%);
+  opacity:0;transform:translateY(10px);transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease);
+  pointer-events:none;
+}
+.stage.show-ui .bottom-controls,.stage.scene-paused .bottom-controls{opacity:1;transform:none;pointer-events:auto}
+
+/* —— 第 0 层：整理带 —— */
+.organize-row{display:flex;justify-content:center;margin-bottom:8px}
+.organize-strip{
+  display:flex;align-items:center;gap:3px;padding:5px 8px;
+  background:var(--overlay);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  border:1px solid var(--line);border-radius:var(--radius-lg);
+  box-shadow:0 14px 44px rgba(0,0,0,.45);
+}
+.org-divider{width:1px;height:24px;background:var(--line);margin:0 5px;flex-shrink:0}
+.obtn{
+  display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 11px;border-radius:var(--radius);
+  color:var(--ink-2);font-size:12.5px;white-space:nowrap;
+  transition:background var(--dur),color var(--dur);
+}
+.obtn:hover:not(:disabled){background:var(--overlay-soft);color:#fff}
+.obtn:disabled{opacity:.38;cursor:not-allowed}
+.obtn.active{color:var(--amber);background:var(--amber-soft)}
+.obtn.on{color:var(--accent);background:var(--accent-soft)}
+.obtn .lbl{font-weight:500}
+.obtn .key{
+  font-size:10px;line-height:1;color:var(--ink-4);background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.06);border-radius:4px;padding:3px 5px;font-family:"JetBrains Mono",Consolas,monospace;
+}
+.obtn:hover .key{color:rgba(255,255,255,.6)}
+/* 评分 pop */
+.rating-wrap{position:relative;display:flex}
+.star-pop{
+  position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+  display:flex;gap:2px;padding:7px 9px;
+  background:var(--overlay-strong);backdrop-filter:blur(18px);
+  border:1px solid var(--line-strong);border-radius:var(--radius-lg);
+  box-shadow:0 14px 40px rgba(0,0,0,.5);animation:popUp 150ms var(--ease);
+}
+@keyframes popUp{from{opacity:0;transform:translateX(-50%) translateY(6px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.star-btn{width:32px;height:32px;font-size:19px;color:rgba(255,255,255,.3);transition:color 120ms,transform 120ms;line-height:1}
+.star-btn:hover{color:var(--amber);transform:scale(1.2)}
+.star-btn.filled{color:var(--amber)}
+.rating-hint{position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);font-size:10px;color:var(--ink-3);white-space:nowrap}
+
+/* —— 第 1 层：进度条 —— */
+.progress-row{padding:0 2px;position:relative}
+.progress-track{
+  position:relative;height:16px;display:flex;align-items:center;cursor:pointer;touch-action:none;
+}
+.progress-track::before{content:"";position:absolute;left:0;right:0;height:16px}
+.bar{
+  position:relative;width:100%;height:4px;border-radius:var(--radius-full);
+  background:rgba(255,255,255,.18);overflow:visible;
+  transition:height 120ms var(--ease);
+}
+.progress-track:hover .bar{height:6px}
+.bar .buffered{
+  position:absolute;left:0;top:0;bottom:0;width:76%;border-radius:var(--radius-full);
+  background:rgba(255,255,255,.26);
+}
+.bar .elapsed{
+  position:absolute;left:0;top:0;bottom:0;width:72.4%;border-radius:var(--radius-full);
+  background:linear-gradient(90deg,var(--accent),#5fe8bb);
+}
+.bar .knob{
+  position:absolute;top:50%;left:72.4%;width:13px;height:13px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.5);
+  transform:translate(-50%,-50%) scale(0);transition:transform 120ms var(--ease);
+}
+.progress-track:hover .knob{transform:translate(-50%,-50%) scale(1)}
+/* 片段锚点 */
+.seg-anchor{
+  position:absolute;top:-4px;bottom:-4px;width:3px;border-radius:2px;
+  transform:translateX(-1.5px);cursor:pointer;z-index:2;
+  box-shadow:0 0 6px rgba(0,0,0,.4);
+}
+.seg-anchor::after{content:attr(data-label);position:absolute;top:calc(100% + 2px);left:50%;transform:translateX(-50%);font-size:10px;color:rgba(255,255,255,.65);white-space:nowrap;opacity:0;transition:opacity 120ms}
+.seg-anchor:hover::after{opacity:1}
+/* hover 预览卡 */
+.hover-preview{
+  position:absolute;bottom:calc(100% + 12px);left:0;z-index:5;
+  width:216px;border-radius:var(--radius-lg);overflow:hidden;
+  background:#0a0c0e;border:1px solid var(--line-strong);
+  box-shadow:0 18px 50px rgba(0,0,0,.55);
+  opacity:0;transform:translateY(6px);pointer-events:none;
+  transition:opacity 120ms var(--ease),transform 120ms var(--ease);
+}
+.progress-track:hover .hover-preview{opacity:1;transform:none;pointer-events:auto}
+.hover-preview .ph{
+  height:116px;position:relative;
+  background:linear-gradient(135deg,#1d2c3f 0%,#2c4a5e 45%,#3a5a58 78%,#24332f 100%);
+}
+.hover-preview .ph::after{content:"";position:absolute;inset:0;background:radial-gradient(70% 60% at 70% 25%, rgba(255,215,150,.35), transparent 70%)}
+.hover-preview .ph .play-hint{
+  position:absolute;inset:0;display:grid;place-items:center;
+  background:rgba(0,0,0,.22);
+}
+.hover-preview .ph .play-hint .disc{
+  width:38px;height:38px;border-radius:50%;background:rgba(10,12,14,.62);backdrop-filter:blur(6px);
+  border:1px solid rgba(255,255,255,.18);display:grid;place-items:center;color:#fff;
+}
+.hover-preview .pt{
+  display:flex;justify-content:space-between;align-items:center;padding:7px 10px;
+  font-size:11px;color:var(--ink-3);
+}
+.hover-preview .pt b{color:#fff;font-weight:600;font-variant-numeric:tabular-nums}
+.hover-preview .pt .tag{color:var(--accent);font-size:10px;letter-spacing:.05em}
+
+/* —— 第 1.5 层：多源切换 —— */
+.source-switch-row{
+  display:flex;align-items:center;gap:6px;margin:2px 0 8px;padding-left:4px;
+}
+.source-switch-label{font-size:11px;color:var(--ink-3);margin-right:2px}
+.source-switch-btn{
+  height:24px;padding:0 10px;border-radius:var(--radius-full);
+  background:rgba(255,255,255,.07);border:1px solid transparent;
+  color:var(--ink-2);font-size:11.5px;transition:all 140ms var(--ease);
+}
+.source-switch-btn:hover{border-color:var(--line-strong);color:#fff}
+.source-switch-btn.active{background:var(--accent-soft);border-color:rgba(62,214,164,.4);color:var(--accent)}
+
+/* —— 第 2 层：按钮行 —— */
+.buttons-row{display:flex;align-items:center;gap:6px;margin-top:4px}
+.ctl{
+  min-width:34px;height:34px;padding:0 8px;border-radius:var(--radius);
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  color:var(--ink-2);font-size:12.5px;font-weight:500;
+  transition:background var(--dur),color var(--dur);
+}
+.ctl:hover{background:var(--overlay-soft);color:#fff}
+.ctl.on{color:var(--accent)}
+.ctl:disabled{opacity:.38;cursor:not-allowed}
+.time{display:flex;align-items:baseline;gap:6px;padding:0 6px;font-variant-numeric:tabular-nums;font-size:12.5px}
+.time .cur{color:#fff;font-weight:600}
+.time .sep{color:var(--ink-4)}
+.time .dur{color:var(--ink-3)}
+.spacer{flex:1}
+.ctl .seg-badge{
+  min-width:16px;height:16px;padding:0 4px;border-radius:var(--radius-full);
+  background:var(--accent);color:#06120d;font-size:10px;font-weight:700;line-height:16px;text-align:center;
+}
+/* pop 菜单 */
+.pop-wrap{position:relative}
+.backdrop{position:fixed;inset:0;z-index:5}
+.pop{
+  position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);
+  min-width:132px;padding:5px;
+  background:var(--overlay-strong);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--line-strong);border-radius:var(--radius-lg);z-index:6;
+  box-shadow:0 16px 44px rgba(0,0,0,.5);animation:popUp 150ms var(--ease);
+}
+.pop.quality-pop{min-width:170px}
+.menu-head{padding:6px 10px 4px;font-size:10.5px;color:var(--ink-4);letter-spacing:.08em}
+.menu-item{
+  width:100%;display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;
+  color:var(--ink-2);font-size:12.5px;text-align:left;transition:background var(--dur),color var(--dur);
+}
+.menu-item:hover{background:var(--overlay-soft);color:#fff}
+.menu-item.active{color:var(--accent)}
+.menu-item .tick{margin-left:auto;color:var(--accent);font-weight:700}
+.menu-item .lang{font-weight:600;min-width:34px}
+.menu-item .muted{color:var(--ink-3);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
+/* 音量滑块 */
+.vol-pop{display:flex;align-items:center;gap:8px;padding:9px 11px;min-width:150px}
+.vol-pop input[type=range]{width:96px;accent-color:var(--accent);height:4px;cursor:pointer}
+
+/* ═════════════ 片段列表面板 ═════════════ */
+.seg-panel{
+  position:absolute;top:64px;right:16px;bottom:96px;width:300px;z-index:20;
+  display:flex;flex-direction:column;
+  background:var(--overlay-strong);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  border:1px solid var(--line-strong);border-radius:var(--radius-lg);
+  box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden;
+  animation:panelIn 220ms var(--ease);
+}
+@keyframes panelIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+.seg-panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 14px 11px;border-bottom:1px solid var(--line);
+}
+.seg-panel-title{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+.seg-panel-title .cnt{font-size:10.5px;color:var(--accent);background:var(--accent-soft);border-radius:var(--radius-full);padding:2px 8px;font-weight:600}
+.seg-panel-close{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;color:var(--ink-3)}
+.seg-panel-close:hover{background:var(--overlay-soft);color:#fff}
+.seg-list{flex:1;overflow-y:auto;padding:7px}
+.seg-item{
+  display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:var(--radius);
+  transition:background var(--dur);
+}
+.seg-item:hover{background:var(--overlay-soft)}
+.seg-item.deleting{opacity:.5}
+.seg-item-main{flex:1;display:flex;align-items:center;gap:9px;min-width:0;text-align:left;padding:3px 0}
+.seg-color-dot{width:8px;height:8px;border-radius:3px;flex-shrink:0}
+.seg-name{font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seg-time{font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums;margin-left:auto;flex-shrink:0}
+.seg-del-btn{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;color:var(--ink-4);opacity:0;transition:all 140ms}
+.seg-item:hover .seg-del-btn{opacity:1}
+.seg-del-btn:hover{background:var(--danger-soft);color:var(--danger)}
+.seg-panel-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px}
+.seg-empty-ico{width:44px;height:44px;border-radius:12px;background:var(--overlay-soft);display:grid;place-items:center;color:var(--ink-3)}
+.seg-empty-text{font-size:13px;color:var(--ink-2)}
+.seg-empty-hint{font-size:11px;color:var(--ink-3)}
+.seg-empty-hint kbd{font-family:"JetBrains Mono",monospace;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);border-radius:4px;padding:1px 5px;font-size:10px}
+
+/* ═════════════ 对话框（通用） ═════════════ */
+.overlay{
+  position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;
+  background:rgba(2,3,4,.6);backdrop-filter:blur(4px);
+  animation:fadeIn 160ms var(--ease);
+}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.dialog{
+  width:400px;max-width:92vw;max-height:84vh;display:flex;flex-direction:column;
+  background:var(--overlay-strong);backdrop-filter:blur(26px);-webkit-backdrop-filter:blur(26px);
+  border:1px solid var(--line-strong);border-radius:14px;
+  box-shadow:0 30px 90px rgba(0,0,0,.6);overflow:hidden;
+  animation:dlgIn 200ms var(--ease);
+}
+@keyframes dlgIn{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+.dialog-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px 12px}
+.dialog-head h3{font-size:14px;font-weight:700}
+.dialog-close{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--ink-3)}
+.dialog-close:hover{background:var(--overlay-soft);color:#fff}
+.dialog-body{padding:4px 18px 16px;overflow-y:auto}
+.dialog-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px 16px;border-top:1px solid var(--line)}
+.btn{
+  height:32px;padding:0 16px;border-radius:var(--radius);font-size:12.5px;font-weight:600;
+  display:inline-flex;align-items:center;gap:6px;transition:filter var(--dur),background var(--dur);
+}
+.btn.ghost{background:var(--overlay-soft);color:var(--ink-2)}
+.btn.ghost:hover{background:rgba(255,255,255,.1);color:#fff}
+.btn.primary{background:var(--accent);color:#07130e}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.danger{background:var(--danger-soft);color:var(--danger)}
+.btn.danger:hover{background:rgba(251,113,133,.26)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* 表单 */
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;color:var(--ink-3);margin-bottom:6px;letter-spacing:.04em}
+.field input[type=text],.field input[type=number]{
+  width:100%;height:34px;padding:0 11px;border-radius:var(--radius);
+  background:rgba(255,255,255,.06);border:1px solid var(--line);
+  color:#fff;font-size:13px;outline:none;transition:border-color var(--dur),background var(--dur);
+}
+.field input:focus{border-color:rgba(62,214,164,.55);background:rgba(255,255,255,.08)}
+.field input:disabled{opacity:.5}
+.field .time-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;padding-top:2px}
+.swatch{
+  width:26px;height:26px;border-radius:8px;cursor:pointer;position:relative;
+  border:2px solid transparent;transition:transform 120ms var(--ease);
+}
+.swatch:hover{transform:scale(1.12)}
+.swatch.sel{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.22)}
+.swatch.sel::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:13px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+
+/* 快速打标 */
+.qt-search{position:relative;margin-bottom:12px}
+.qt-search input{
+  width:100%;height:36px;padding:0 12px 0 36px;border-radius:var(--radius);
+  background:rgba(255,255,255,.06);border:1px solid var(--line);color:#fff;font-size:13px;outline:none;
+}
+.qt-search input:focus{border-color:rgba(62,214,164,.55)}
+.qt-search .s-ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--ink-3)}
+.qt-groups{max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+.qt-group .gt-name{font-size:11px;color:var(--ink-4);letter-spacing:.08em;margin-bottom:7px}
+.qt-chips{display:flex;flex-wrap:wrap;gap:7px}
+.tag-chip{
+  display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:var(--radius-full);
+  background:rgba(255,255,255,.06);border:1px solid var(--line);
+  color:var(--ink-2);font-size:12px;transition:all 140ms var(--ease);
+}
+.tag-chip:hover{border-color:var(--line-strong);color:#fff}
+.tag-chip.sel{background:var(--accent-soft);border-color:rgba(62,214,164,.45);color:var(--accent);font-weight:600}
+.tag-chip .c-dot{width:7px;height:7px;border-radius:50%}
+.qt-count{font-size:11px;color:var(--ink-3);padding-top:10px;border-top:1px solid var(--line);margin-top:12px}
+
+/* ═════════════ Toast ═════════════ */
+.toast{
+  position:absolute;left:50%;bottom:118px;transform:translateX(-50%);
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(12,14,16,.88);backdrop-filter:blur(16px);
+  border:1px solid var(--line-strong);border-radius:var(--radius-full);
+  padding:9px 18px;font-size:12.5px;color:#fff;
+  box-shadow:0 14px 40px rgba(0,0,0,.5);z-index:30;
+  animation:toastIn 200ms var(--ease);
+}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.toast .t-ico{color:var(--accent)}
+
+/* ═════════════ 状态屏 ═════════════ */
+.state-screen{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:radial-gradient(90% 70% at 50% 40%, #0b0e10 0%, #050607 100%);
+  text-align:center;padding:32px;z-index:10;
+}
+.state-ico{
+  width:72px;height:72px;border-radius:20px;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);
+  display:grid;place-items:center;color:var(--ink-3);margin-bottom:2px;
+}
+.state-ico.danger{color:var(--danger)}
+.state-ico.warn{color:var(--amber)}
+.state-text{font-size:15px;font-weight:600}
+.state-text.err{color:var(--danger)}
+.state-subtitle{font-size:12.5px;color:var(--ink-3);max-width:420px;line-height:1.6}
+.missing-hint{font-size:12px;color:var(--ink-3);max-width:440px;line-height:1.7}
+.missing-actions{display:flex;gap:10px;margin-top:6px}
+.state-meta{
+  position:absolute;bottom:26px;font-size:11px;color:var(--ink-4);letter-spacing:.06em;
+}
+
+/* ═════════════ 快捷键帮助面板（建议新增 ⭐） ═════════════ */
+.help-panel{
+  position:absolute;top:64px;right:16px;bottom:auto;width:340px;z-index:30;
+  background:var(--overlay-strong);backdrop-filter:blur(22px);
+  border:1px solid var(--line-strong);border-radius:var(--radius-lg);
+  box-shadow:0 24px 70px rgba(0,0,0,.55);overflow:hidden;
+  animation:panelIn 200ms var(--ease);
+}
+.help-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px 11px;border-bottom:1px solid var(--line)}
+.help-head .ttl{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+.help-body{padding:12px 16px;max-height:min(58vh,430px);overflow-y:auto}
+.help-group{margin-bottom:12px}
+.help-group:last-child{margin-bottom:4px}
+.help-group .h-name{font-size:10.5px;color:var(--ink-4);letter-spacing:.1em;margin-bottom:6px}
+.help-row{display:flex;align-items:center;gap:10px;padding:4px 0}
+.help-row .k{
+  min-width:44px;height:22px;padding:0 7px;border-radius:5px;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);
+  border-bottom-width:2px;font-family:"JetBrains Mono",monospace;font-size:11px;color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.help-row .kd{display:flex;gap:4px;align-items:center}
+.help-row .desc{font-size:12px;color:var(--ink-2)}
+
+/* ═════════════ 设计稿演示工具（非产品 UI） ═════════════ */
+.draft-chrome{
+  position:fixed;left:14px;top:14px;z-index:99;display:flex;align-items:center;gap:10px;
+  pointer-events:none;
+}
+.draft-badge{
+  display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 13px;
+  background:rgba(10,12,14,.78);backdrop-filter:blur(14px);
+  border:1px solid var(--line-strong);border-radius:var(--radius-full);
+  font-size:11.5px;color:var(--ink-2);letter-spacing:.03em;pointer-events:auto;
+}
+.draft-badge .db{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+.draft-badge b{color:var(--accent);font-weight:600}
+.scene-switcher{
+  position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:99;
+  display:flex;align-items:center;gap:3px;padding:5px;
+  background:rgba(10,12,14,.82);backdrop-filter:blur(16px);
+  border:1px solid var(--line-strong);border-radius:var(--radius-full);
+  box-shadow:0 14px 44px rgba(0,0,0,.5);
+}
+.scene-switcher .sw-lbl{
+  font-size:10px;color:var(--ink-4);letter-spacing:.12em;padding:0 8px 0 6px;
+}
+.scene-btn{
+  height:26px;padding:0 11px;border-radius:var(--radius-full);
+  font-size:11.5px;color:var(--ink-3);transition:all 140ms var(--ease);white-space:nowrap;
+}
+.scene-btn:hover{color:#fff;background:rgba(255,255,255,.07)}
+.scene-btn.active{background:var(--accent);color:#07130e;font-weight:700}
+.scene-btn.active:hover{color:#07130e}
+.scene-btn.danger.active{background:var(--danger);color:#fff}
+.scene-btn.warn.active{background:var(--amber);color:#241600}
+/* 设计说明抽屉 */
+.notes-toggle{
+  position:fixed;right:14px;bottom:16px;z-index:99;height:32px;padding:0 15px;
+  border-radius:var(--radius-full);display:inline-flex;align-items:center;gap:7px;
+  background:rgba(62,214,164,.14);border:1px solid rgba(62,214,164,.4);color:var(--accent);
+  font-size:12px;font-weight:600;backdrop-filter:blur(14px);transition:all 160ms var(--ease);
+}
+.notes-toggle:hover{background:var(--accent);color:#07130e}
+.notes-drawer{
+  position:fixed;right:0;top:0;bottom:0;width:350px;z-index:98;
+  background:rgba(8,10,11,.96);backdrop-filter:blur(24px);
+  border-left:1px solid var(--line-strong);
+  transform:translateX(100%);transition:transform 260ms var(--ease);
+  display:flex;flex-direction:column;
+}
+.notes-drawer.open{transform:none}
+.notes-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+.notes-head .ttl{font-size:13.5px;font-weight:700}
+.notes-body{flex:1;overflow-y:auto;padding:14px 18px 24px;font-size:12px;color:var(--ink-2);line-height:1.7}
+.notes-body h4{font-size:11px;color:var(--accent);letter-spacing:.1em;margin:18px 0 8px;font-weight:700}
+.notes-body h4:first-child{margin-top:2px}
+.notes-body ul{margin:0;padding-left:16px}
+.notes-body li{margin-bottom:5px}
+.notes-body .tag{
+  display:inline-block;font-size:10px;font-weight:700;border-radius:4px;padding:1px 6px;margin-right:5px;vertical-align:1px;
+}
+.notes-body .tag.existing{background:var(--accent-soft);color:var(--accent)}
+.notes-body .tag.new{background:var(--amber-soft);color:var(--amber)}
+.notes-body kbd{font-family:"JetBrains Mono",monospace;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:0 5px;font-size:10.5px;color:#fff}
+.notes-foot{border-top:1px solid var(--line);padding:10px 18px;font-size:10.5px;color:var(--ink-4)}
+
+/* 元素显隐（场景驱动） */
+[data-hidden]{display:none !important}
+
+/* 响应式 */
+@media (max-width:900px){
+  .obtn .lbl{display:none}
+  .obtn{padding:0 9px}
+  .hover-preview{display:none}
+  .seg-panel{left:12px;right:12px;width:auto}
+  .scene-switcher{max-width:94vw;overflow-x:auto;white-space:nowrap}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ 播放器舞台 ═══════════════════════ -->
+<div class="stage show-ui scene-playing" id="stage">
+
+  <!-- 视频画面（CSS 占位场景） -->
+  <div class="video-frame" id="videoFrame">
+    <div class="mist"></div>
+    <div class="grain"></div>
+    <div class="vig"></div>
+  </div>
+
+  <!-- 限制内容遮罩 -->
+  <div class="restricted-mask" id="restrictedMask" data-hidden>
+    <span class="ri">🔞</span>
+    <span class="rt">限 制 内 容</span>
+  </div>
+
+  <!-- 字幕轨道 -->
+  <div class="subtitle" id="subtitle">活下去！</div>
+
+  <!-- 长按 2× -->
+  <div class="speed-badge" id="speedBadge" data-hidden>
+    <svg class="bx" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+    <span><b>2×</b> 长按快进中</span>
+  </div>
+
+  <!-- 缓冲 -->
+  <div class="spinner" id="spinner" data-hidden></div>
+
+  <!-- 顶部栏 -->
+  <div class="top-bar" id="topBar">
+    <button class="top-btn" id="backBtn" title="返回 (Esc)">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    </button>
+    <div class="top-title">幽灵公主 もののけ姫<span class="subtle">1080p · 本地文件</span></div>
+    <div class="mark-chip" id="markChip" data-hidden>
+      <span class="dot"></span>起点 <span id="markTime">00:12:34</span> <span class="muted">按 O 结束</span>
+    </div>
+    <div class="top-spacer"></div>
+    <button class="help-btn" id="helpBtn" title="快捷键 (?)">
+      <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/><circle cx="12" cy="12" r="10"/></svg>
+    </button>
+    <div class="win-controls">
+      <button class="win-btn" title="最小化">
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="3" y1="6" x2="9" y2="6" stroke-linecap="round"/></svg>
+      </button>
+      <button class="win-btn" title="最大化/还原">
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="6" height="6" rx="1"/></svg>
+      </button>
+      <button class="win-btn close" title="关闭">
+        <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4"><line x1="3.5" y1="3.5" x2="8.5" y2="8.5" stroke-linecap="round"/><line x1="8.5" y1="3.5" x2="3.5" y2="8.5" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 中央播放按钮（暂停时） -->
+  <button class="play-center" id="playCenter">
+    <span class="tri"></span>
+  </button>
+
+  <!-- 底部控制层 -->
+  <div class="bottom-controls" id="bottomControls">
+
+    <!-- 第 0 层：整理带 -->
+    <div class="organize-row" id="organizeRow">
+      <div class="organize-strip" id="organizeStrip">
+        <button class="obtn" id="btnMarkIn" title="标记片段起点 (I)">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V4l13 8-13 8z"/></svg>
+          <span class="lbl" id="lblMarkIn">片段起点</span>
+          <span class="key">I</span>
+        </button>
+        <button class="obtn" id="btnMarkOut" title="标记片段终点 (O)" disabled>
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 4v16L7 12l13-8z"/></svg>
+          <span class="lbl">片段终点</span>
+          <span class="key">O</span>
+        </button>
+        <div class="org-divider"></div>
+        <button class="obtn" title="快速打标 (T)">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29a1 1 0 0 0 1.42 0l8.58-8.58a1 1 0 0 0 0-1.42L12 2z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>
+          <span class="lbl">快速打标</span>
+          <span class="key">T</span>
+        </button>
+        <button class="obtn" title="AI 自动打标 (A)">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="4"/></svg>
+          <span class="lbl">AI 打标</span>
+          <span class="key">A</span>
+        </button>
+        <div class="org-divider"></div>
+        <div class="rating-wrap">
+          <button class="obtn" title="评分 (1-5)">
+            <span class="stars" id="starsDisplay" style="font-size:14px;color:rgba(255,255,255,.32);letter-spacing:1px">★★★☆☆</span>
+            <span class="lbl">评分</span>
+            <span class="key">1-5</span>
+          </button>
+          <div class="star-pop" id="starPop" data-hidden>
+            <button class="star-btn filled">★</button><button class="star-btn filled">★</button><button class="star-btn filled">★</button><button class="star-btn">★</button><button class="star-btn">★</button>
+          </div>
+        </div>
+        <button class="obtn" id="btnFav" title="收藏切换 (R)">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span class="lbl">收藏</span>
+          <span class="key">R</span>
+        </button>
+        <div class="org-divider"></div>
+        <button class="obtn" title="截图到剪贴板 (S) / Shift+S 存文件">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <span class="lbl">截图</span>
+          <span class="key">S</span>
+        </button>
+        <button class="obtn on" id="btnCC" title="字幕切换 (C)">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 15h1.5a2.5 2.5 0 0 0 0-5H7m10 5h-1.5a2.5 2.5 0 0 1 0-5H17"/></svg>
+          <span class="lbl">字幕</span>
+          <span class="key">C</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 第 1 层：进度条 -->
+    <div class="progress-row">
+      <div class="progress-track" id="progressTrack">
+        <div class="hover-preview" id="hoverPreview">
+          <div class="ph">
+            <div class="play-hint"><span class="disc"><svg class="ico sm" viewBox="0 0 24 24" fill="currentColor"><polygon points="7 4 20 12 7 20 7 4"/></svg></span></div>
+          </div>
+          <div class="pt"><b id="hoverTime">01:23:45</b><span class="tag">松开跳转</span></div>
+        </div>
+        <div class="bar">
+          <div class="buffered" id="bufferedBar"></div>
+          <div class="elapsed" id="elapsedBar"></div>
+          <div class="seg-anchor" style="left:2.1%;background:var(--c1)" data-label="开场"></div>
+          <div class="seg-anchor" style="left:36.4%;background:var(--c2)" data-label="名场面"></div>
+          <div class="seg-anchor" style="left:60.4%;background:var(--c5)" data-label="高潮"></div>
+          <div class="knob" id="knob"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 第 1.5 层：多源切换 -->
+    <div class="source-switch-row" id="sourceRow">
+      <span class="source-switch-label">网络源</span>
+      <button class="source-switch-btn active" id="src0">javgg 直链</button>
+      <button class="source-switch-btn" id="src1">vidhide</button>
+      <button class="source-switch-btn" id="src2">streamwish</button>
+      <span style="font-size:11px;color:var(--ink-4);margin-left:8px">36h 签名有效期 · 过期可在详情页刷新</span>
+    </div>
+
+    <!-- 第 2 层：按钮行 -->
+    <div class="buttons-row">
+      <button class="ctl" id="btnPlay" title="播放/暂停 (Space)">
+        <svg class="ico" id="playIco" viewBox="0 0 24 24" fill="currentColor"><polygon points="7 4 20 12 7 20 7 4"/></svg>
+      </button>
+
+      <!-- 音量 -->
+      <div class="pop-wrap" id="volWrap">
+        <button class="ctl" id="btnVol" title="点击静音 (M)">
+          <svg class="ico" id="volIco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        </button>
+        <div class="pop vol-pop" id="volPop" data-hidden>
+          <input type="range" min="0" max="1" step="0.01" value="0.8" id="volRange">
+          <button class="ctl" style="min-width:28px;padding:0 4px" title="静音切换 (M)">
+            <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="time">
+        <span class="cur" id="timeCur">01:23:45</span>
+        <span class="sep">/</span>
+        <span class="dur">01:56:00</span>
+      </div>
+
+      <!-- 清晰度（HLS） -->
+      <div class="pop-wrap" id="qWrap">
+        <button class="ctl" id="btnQuality" title="清晰度">自动</button>
+        <div class="pop quality-pop" id="qualityPop" data-hidden>
+          <button class="menu-item active" data-q="-1">自动<span class="tick">✓</span></button>
+          <button class="menu-item" data-q="0">1080p · 4280kbps</button>
+          <button class="menu-item" data-q="1">720p · 2140kbps</button>
+          <button class="menu-item" data-q="2">480p · 1080kbps</button>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+
+      <!-- 速度 -->
+      <div class="pop-wrap" id="spWrap">
+        <button class="ctl" id="btnSpeed" title="播放速度">1×</button>
+        <div class="pop" id="speedPop" data-hidden>
+          <div class="menu-head">播放速度</div>
+          <button class="menu-item" data-sp="0.5">0.5×</button>
+          <button class="menu-item" data-sp="0.75">0.75×</button>
+          <button class="menu-item active" data-sp="1">1× 正常<span class="tick">✓</span></button>
+          <button class="menu-item" data-sp="1.25">1.25×</button>
+          <button class="menu-item" data-sp="1.5">1.5×</button>
+          <button class="menu-item" data-sp="1.75">1.75×</button>
+          <button class="menu-item" data-sp="2">2×</button>
+        </div>
+      </div>
+
+      <!-- 字幕菜单 -->
+      <div class="pop-wrap" id="subWrap">
+        <button class="ctl on" id="btnSub" title="字幕 (C)">CC</button>
+        <div class="pop" id="subPop" data-hidden>
+          <div class="menu-head">字幕轨道</div>
+          <button class="menu-item" data-sub="-1">关闭</button>
+          <button class="menu-item active" data-sub="0"><span class="lang">中文</span><span class="muted">简中 ASS</span><span class="tick">✓</span></button>
+          <button class="menu-item" data-sub="1"><span class="lang">EN</span><span class="muted">English SRT</span></button>
+          <button class="menu-item" data-sub="2"><span class="lang">JP</span><span class="muted">日本語 VTT</span></button>
+        </div>
+      </div>
+
+      <!-- 整理带锁定 -->
+      <button class="ctl on" id="btnOrg" title="整理工具栏 (X)">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </button>
+
+      <!-- 片段列表 -->
+      <button class="ctl" id="btnSeg" title="片段列表">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="seg-badge">3</span>
+      </button>
+
+      <!-- 全屏 -->
+      <button class="ctl" id="btnFs" title="全屏 (F)">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 片段列表面板 -->
+  <div class="seg-panel" id="segPanel" data-hidden>
+    <div class="seg-panel-head">
+      <span class="seg-panel-title">片段标记<span class="cnt">3</span></span>
+      <button class="seg-panel-close" id="segClose" title="关闭">
+        <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="seg-list">
+      <div class="seg-item">
+        <button class="seg-item-main" title="跳转到此片段">
+          <span class="seg-color-dot" style="background:var(--c1)"></span>
+          <span class="seg-name">开场 · 森林之灵</span>
+          <span class="seg-time">00:02:15 – 00:04:30</span>
+        </button>
+        <button class="seg-del-btn" title="删除片段">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+        </button>
+      </div>
+      <div class="seg-item">
+        <button class="seg-item-main" title="跳转到此片段">
+          <span class="seg-color-dot" style="background:var(--c2)"></span>
+          <span class="seg-name">名场面 · 山兽神现身</span>
+          <span class="seg-time">00:42:10 – 00:45:55</span>
+        </button>
+        <button class="seg-del-btn" title="删除片段">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+        </button>
+      </div>
+      <div class="seg-item">
+        <button class="seg-item-main" title="跳转到此片段">
+          <span class="seg-color-dot" style="background:var(--c5)"></span>
+          <span class="seg-name">高潮 · 幽灵公主之战</span>
+          <span class="seg-time">01:10:00 – 01:14:20</span>
+        </button>
+        <button class="seg-del-btn" title="删除片段">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 快捷键帮助面板（建议新增） -->
+  <div class="help-panel" id="helpPanel" data-hidden>
+    <div class="help-head">
+      <span class="ttl"><svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/><circle cx="12" cy="12" r="10"/></svg> 播放快捷键</span>
+      <button class="seg-panel-close" id="helpClose" title="关闭">
+        <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="help-body">
+      <div class="help-group">
+        <div class="h-name">播放控制</div>
+        <div class="help-row"><span class="kd"><span class="k">Space</span></span><span class="desc">播放 / 暂停</span></div>
+        <div class="help-row"><span class="kd"><span class="k">←</span><span class="k">→</span></span><span class="desc">前后步进（设置步长）</span></div>
+        <div class="help-row"><span class="kd"><span class="k">J</span><span class="k">L</span></span><span class="desc">快退 / 快进 10 秒</span></div>
+        <div class="help-row"><span class="kd"><span class="k">,</span><span class="k">.</span></span><span class="desc">逐帧后退 / 前进</span></div>
+        <div class="help-row"><span class="kd"><span class="k">0</span>–<span class="k">9</span></span><span class="desc">跳转到 N×10%</span></div>
+        <div class="help-row"><span class="kd"><span class="k">M</span></span><span class="desc">静音 / 恢复</span></div>
+        <div class="help-row"><span class="kd"><span class="k">F</span></span><span class="desc">全屏切换</span></div>
+      </div>
+      <div class="help-group">
+        <div class="h-name">整理（播放中完成，不打断观看）</div>
+        <div class="help-row"><span class="kd"><span class="k">I</span><span class="k">O</span></span><span class="desc">标记片段起点 / 终点</span></div>
+        <div class="help-row"><span class="kd"><span class="k">T</span></span><span class="desc">快速打标</span></div>
+        <div class="help-row"><span class="kd"><span class="k">A</span></span><span class="desc">AI 自动打标</span></div>
+        <div class="help-row"><span class="kd"><span class="k">1</span>–<span class="k">5</span></span><span class="desc">评分</span></div>
+        <div class="help-row"><span class="kd"><span class="k">R</span></span><span class="desc">收藏切换</span></div>
+        <div class="help-row"><span class="kd"><span class="k">S</span></span><span class="desc">截图到剪贴板 · <span class="k">Shift</span>+<span class="k">S</span> 存文件</span></div>
+        <div class="help-row"><span class="kd"><span class="k">C</span></span><span class="desc">字幕开关</span></div>
+        <div class="help-row"><span class="kd"><span class="k">X</span></span><span class="desc">整理带锁定 / 解锁</span></div>
+      </div>
+      <div class="help-group">
+        <div class="h-name">手势</div>
+        <div class="help-row"><span class="kd"><span class="k">单击</span></span><span class="desc">播放 / 暂停</span></div>
+        <div class="help-row"><span class="kd"><span class="k">双击左 1/3</span></span><span class="desc">后退 10 秒</span></div>
+        <div class="help-row"><span class="kd"><span class="k">双击中 1/3</span></span><span class="desc">全屏切换</span></div>
+        <div class="help-row"><span class="kd"><span class="k">双击右 1/3</span></span><span class="desc">前进 10 秒</span></div>
+        <div class="help-row"><span class="kd"><span class="k">长按</span></span><span class="desc">2× 快进（松手恢复）</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast" data-hidden>
+    <svg class="ico sm t-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    <span id="toastText">已标记片段起点</span>
+  </div>
+
+  <!-- ═══ 状态屏（场景切换） ═══ -->
+  <!-- 加载中 -->
+  <div class="state-screen" id="screenLoading" data-hidden>
+    <div class="spinner" style="position:static;transform:none"></div>
+    <div class="state-text" style="color:var(--ink-3)">加载中…</div>
+  </div>
+
+  <!-- 文件丢失 -->
+  <div class="state-screen" id="screenMissing" data-hidden>
+    <div class="state-ico warn">
+      <svg class="ico lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    </div>
+    <div class="state-text">本地文件已丢失</div>
+    <div class="state-subtitle">幽灵公主 もののけ姫</div>
+    <p class="missing-hint">检测到该媒体关联了平台链接（YouTube/Bilibili 等），无法在播放器内联播放。点击下方按钮在新标签页打开。</p>
+    <div class="missing-actions">
+      <button class="btn primary">
+        <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        在新标签页打开
+      </button>
+      <button class="btn ghost">返回</button>
+    </div>
+    <div class="state-meta">文件缺失检测 · file_missing</div>
+  </div>
+
+  <!-- 网络源播放失败 -->
+  <div class="state-screen" id="screenError" data-hidden>
+    <div class="state-ico danger">
+      <svg class="ico lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </div>
+    <div class="state-text err">网络源播放失败</div>
+    <p class="missing-hint">直链已失效或过期（签名有效期 36h）。可点击「刷新源」重新解析，或返回详情页手动更新。</p>
+    <div class="missing-actions">
+      <button class="btn primary">
+        <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        刷新源
+      </button>
+      <button class="btn ghost">返回</button>
+    </div>
+    <div class="state-meta">network-stream · 源已过期</div>
+  </div>
+
+  <!-- ═══ 对话框 ═══ -->
+  <!-- 片段编辑对话框 -->
+  <div class="overlay" id="segDialog" data-hidden>
+    <div class="dialog" style="width:420px">
+      <div class="dialog-head">
+        <h3><svg class="ico sm" style="display:inline;vertical-align:-3px;margin-right:6px;color:var(--amber)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>保存片段</h3>
+        <button class="dialog-close" id="segDlgClose">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <div class="field">
+          <label>片段名称</label>
+          <input type="text" value="片段 01:23:45 - 01:24:30" placeholder="给这个片段起个名字">
+        </div>
+        <div class="field">
+          <label>起止时间</label>
+          <div class="time-grid">
+            <input type="text" value="01:23:45" disabled>
+            <input type="text" value="01:24:30" disabled>
+          </div>
+        </div>
+        <div class="field">
+          <label>标记颜色</label>
+          <div class="swatches">
+            <span class="swatch" style="background:var(--c1)"></span>
+            <span class="swatch sel" style="background:var(--c2)"></span>
+            <span class="swatch" style="background:var(--c3)"></span>
+            <span class="swatch" style="background:var(--c4)"></span>
+            <span class="swatch" style="background:var(--c5)"></span>
+            <span class="swatch" style="background:var(--c6)"></span>
+            <span class="swatch" style="background:var(--c7)"></span>
+            <span class="swatch" style="background:var(--c8)"></span>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <button class="btn primary" id="segDlgSave">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          保存片段
+        </button>
+        <button class="btn ghost" id="segDlgCancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 快速打标对话框 -->
+  <div class="overlay" id="tagDialog" data-hidden>
+    <div class="dialog" style="width:430px">
+      <div class="dialog-head">
+        <h3><svg class="ico sm" style="display:inline;vertical-align:-3px;margin-right:6px;color:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29a1 1 0 0 0 1.42 0l8.58-8.58a1 1 0 0 0 0-1.42L12 2z"/></svg>快速打标</h3>
+        <button class="dialog-close" id="tagDlgClose">
+          <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <div class="qt-search">
+          <svg class="ico sm s-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" placeholder="搜索标签…">
+        </div>
+        <div class="qt-groups">
+          <div class="qt-group">
+            <div class="gt-name">类 型</div>
+            <div class="qt-chips">
+              <span class="tag-chip sel"><span class="c-dot" style="background:#635bff"></span>动画</span>
+              <span class="tag-chip"><span class="c-dot" style="background:#5ac8fa"></span>奇幻</span>
+              <span class="tag-chip"><span class="c-dot" style="background:#34c759"></span>冒险</span>
+            </div>
+          </div>
+          <div class="qt-group">
+            <div class="gt-name">主 题</div>
+            <div class="qt-chips">
+              <span class="tag-chip sel"><span class="c-dot" style="background:#f59e0b"></span>人与自然</span>
+              <span class="tag-chip"><span class="c-dot" style="background:#af52de"></span>成长</span>
+              <span class="tag-chip"><span class="c-dot" style="background:#ff2d55"></span>环保</span>
+            </div>
+          </div>
+          <div class="qt-group">
+            <div class="gt-name">人 物</div>
+            <div class="qt-chips">
+              <span class="tag-chip sel"><span class="c-dot" style="background:#8e8e93"></span>阿席达卡</span>
+              <span class="tag-chip"><span class="c-dot" style="background:#8e8e93"></span>珊</span>
+            </div>
+          </div>
+        </div>
+        <div class="qt-count">已选 <b style="color:var(--accent)">3</b> 个标签 · 重复标签自动跳过</div>
+      </div>
+      <div class="dialog-foot">
+        <button class="btn primary">确认打标</button>
+        <button class="btn ghost" id="tagDlgCancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /stage -->
+
+<!-- ═════════════ 设计稿演示工具 ═════════════ -->
+<div class="draft-chrome">
+  <span class="draft-badge"><span class="db"></span>vitoice 播放器 · 设计稿 <b>v1</b></span>
+</div>
+
+<div class="scene-switcher" id="sceneSwitcher">
+  <span class="sw-lbl">场景</span>
+  <button class="scene-btn active" data-scene="playing">▶ 播放中</button>
+  <button class="scene-btn" data-scene="paused">⏸ 暂停</button>
+  <button class="scene-btn" data-scene="loading">加载中</button>
+  <button class="scene-btn" data-scene="missing">文件丢失</button>
+  <button class="scene-btn danger" data-scene="error">源失败</button>
+  <button class="scene-btn warn" data-scene="restricted">受限</button>
+  <button class="scene-btn" data-scene="longpress">2× 长按</button>
+</div>
+
+<button class="notes-toggle" id="notesToggle">
+  <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  设计说明
+</button>
+
+<div class="notes-drawer" id="notesDrawer">
+  <div class="notes-head">
+    <span class="ttl">设计说明</span>
+    <button class="dialog-close" id="notesClose">
+      <svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  </div>
+  <div class="notes-body">
+    <h4>设计基调</h4>
+    <ul>
+      <li>全屏沉浸：画面是唯一主角，所有控制层半透明 + 毛玻璃叠加其上，鼠标静止 3s 自动隐去（播放中）。</li>
+      <li>恒定深色：播放器舞台为 #000（真实产品如此），不随应用浅色主题变化，保证观影一致性。</li>
+      <li>控制层三层折叠：<b>整理带</b>（快捷键唤起，5s 自动隐藏，X 锁定）→ <b>进度条</b>（常驻）→ <b>按钮行</b>。层级之间不挤动布局。</li>
+      <li>设计令牌对齐 app.css：accent <kbd>#3ed6a4</kbd> · amber <kbd>#f5b942</kbd> · danger <kbd>#fb7185</kbd>。</li>
+    </ul>
+    <h4><span class="tag existing">现有功能</span>真实呈现（均已实现）</h4>
+    <ul>
+      <li>手势：单击播放/暂停；双击三分区（左 -10s / 中 全屏 / 右 +10s）；长按 500ms 2× 快进。</li>
+      <li>快捷键：Space / J L / ← → / , . / 0-9 / I O / T / A / 1-5 / R / S / C / F / M / X / Esc 分层关闭。</li>
+      <li>整理带：片段起点/终点、快速打标、AI 打标、评分（hover 五星）、收藏、截图（S 剪贴板 / Shift+S 存文件）、字幕。</li>
+      <li>进度条：缓冲区、片段彩色锚点、Hover 时间+缩略图预览（后端截图端点）、拖拽 seek（转码流重载降级）。</li>
+      <li>多源切换：网络媒体多个 source（javgg/vidhide/streamwish…）在控制条切换，36h 签名过期提示。</li>
+      <li>HLS 清晰度菜单（自动/1080p/720p/480p，localStorage 记忆）、速度菜单、字幕轨道菜单、音量 hover 滑块。</li>
+      <li>片段列表面板（跳转/删除）、片段编辑对话框（命名/起止/8 色板）、快速打标对话框（搜索+分组多选+409 去重）。</li>
+      <li>状态屏：加载中 / 文件丢失（平台链接→外开）/ 网络源失败（刷新源）/ 受限内容遮罩 / 长按 2× 徽标。</li>
+    </ul>
+    <h4><span class="tag new">建议优化</span>本稿新增（功能未实现，需确认）</h4>
+    <ul>
+      <li>① <b>图标体系</b>：整理带与控制条由 emoji（⏱🏷🤖📸💬）升级为统一线性 SVG 图标，与全局 lucide 风格一致。</li>
+      <li>② <b>快捷键帮助面板</b>：按 <kbd>?</kbd> 或顶栏 ? 按钮呼出，分组列出全部快捷键与手势（当前无此入口）。</li>
+      <li>③ <b>顶部信息条</b>：标题右侧增加媒体来源/清晰度徽标（本地/网络、1080p），返回按钮加大热区。</li>
+      <li>④ <b>整理带锁定态</b>：X 锁定后整理带常驻并高亮 🔧 按钮为 accent，防止误触隐藏。</li>
+      <li>⑤ <b>进度条 Hover 预览</b>：预览卡加时间戳 + 「松开跳转」提示，弱化对截图端点的依赖。</li>
+      <li>⑥ <b>网络源行</b>：增加 36h 有效期文案与过期态，降低「源失效黑屏」的困惑（详情页已有刷新源）。</li>
+    </ul>
+    <h4>交互试玩</h4>
+    <ul>
+      <li>底部「场景」切换器可预览 7 种状态。</li>
+      <li>键盘：<kbd>Space</kbd> 播放/暂停 · <kbd>I</kbd> 标记起点 · <kbd>O</kbd> 弹片段对话框 · <kbd>T</kbd> 快速打标 · <kbd>X</kbd> 整理带锁定 · <kbd>?</kbd> 快捷键面板 · <kbd>←</kbd><kbd>→</kbd> 快进快退 · <kbd>1</kbd>-<kbd>5</kbd> 评分 · <kbd>Esc</kbd> 逐层关闭。</li>
+      <li>进度条悬停显示预览卡；按钮行各 pop 菜单可点击展开。</li>
+    </ul>
+  </div>
+  <div class="notes-foot">播放器全屏体验设计稿 v1 · 2026-08-15 · 基于真实 player/+page.svelte</div>
+</div>
+
+<script>
+(function(){
+  const stage = document.getElementById('stage');
+  const $ = (id) => document.getElementById(id);
+
+  const S = {
+    scene: 'playing',
+    playing: true,
+    muted: false,
+    volume: 0.8,
+    rate: 1,
+    cc: true,
+    subIdx: 0,
+    quality: '自动',
+    orgPin: true,
+    segPanel: false,
+    markStart: null,
+    rating: 3,
+    fav: false,
+    time: 5025,     // 01:23:45
+    duration: 6960, // 01:56:00
+    buffered: 5290,
+    sourceIdx: 0
+  };
+
+  /* ---------- 工具 ---------- */
+  const fmt = (s) => {
+    s = Math.max(0, Math.floor(s));
+    const h = String(Math.floor(s/3600)).padStart(2,'0');
+    const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+    const sec = String(s%60).padStart(2,'0');
+    return `${h}:${m}:${sec}`;
+  };
+  const show = (el, on) => { if (el) el.classList.toggle('data-hidden', !on); };
+  const toast = (msg, icon='ok') => {
+    $('toastText').textContent = msg;
+    show($('toast'), true);
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => show($('toast'), false), 2200);
+  };
+  const closeAllPops = () => {
+    ['volPop','qualityPop','speedPop','subPop','starPop'].forEach(id => show($(id), false));
+  };
+  const setStageClass = () => {
+    stage.classList.remove('show-ui');
+    const s = S.scene;
+    if (s === 'paused' || s === 'playing') {
+      stage.classList.add(s === 'paused' ? 'scene-paused' : 'show-ui');
+    }
+  };
+  const updatePlayBtn = () => {
+    $('playIco').innerHTML = S.playing
+      ? '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>'
+      : '<polygon points="7 4 20 12 7 20 7 4"/>';
+    $('playIco').setAttribute('viewBox','0 0 24 24');
+  };
+  const updateTime = () => {
+    const pct = S.duration > 0 ? (S.time / S.duration) * 100 : 0;
+    $('timeCur').textContent = fmt(S.time);
+    $('elapsedBar').style.width = pct + '%';
+    $('knob').style.left = pct + '%';
+    const bpct = Math.min(100, (S.buffered / S.duration) * 100);
+    $('bufferedBar').style.width = Math.max(pct, bpct) + '%';
+  };
+
+  /* ---------- 场景切换 ---------- */
+  const scenes = ['playing','paused','loading','missing','error','restricted','longpress'];
+  function setScene(name){
+    S.scene = name;
+    // 重置各元素
+    show($('videoFrame'), true);
+    show($('restrictedMask'), name === 'restricted');
+    show($('subtitle'), !['loading','missing','error','restricted'].includes(name) && S.cc);
+    show($('speedBadge'), name === 'longpress');
+    show($('spinner'), name === 'loading');
+    show($('topBar'), true);
+    show($('bottomControls'), true);
+    show($('playCenter'), name === 'paused');
+    show($('segPanel'), false);
+    show($('helpPanel'), false);
+    closeAllPops();
+    show($('screenLoading'), name === 'loading');
+    show($('screenMissing'), name === 'missing');
+    show($('screenError'), name === 'error');
+    // 长按场景短暂展示后自动回到播放中
+    if (name === 'longpress') {
+      S.playing = true; updatePlayBtn();
+      setTimeout(() => { if (S.scene === 'longpress') { setScene('playing'); } }, 1600);
+    }
+    // 受限场景中隐藏字幕/控制（遮罩全屏）
+    if (name === 'restricted') {
+      show($('subtitle'), false);
+      show($('topBar'), false);
+      show($('bottomControls'), false);
+    }
+    S.playing = !['loading','missing','error','paused','restricted'].includes(name);
+    updatePlayBtn();
+    setStageClass();
+    updateTime();
+    // 切换器高亮
+    document.querySelectorAll('.scene-btn').forEach(b => b.classList.toggle('active', b.dataset.scene === name));
+  }
+  document.querySelectorAll('.scene-btn').forEach(b => {
+    b.addEventListener('click', () => setScene(b.dataset.scene));
+  });
+
+  /* ---------- 主播放逻辑 ---------- */
+  // 进度推进
+  let tick = setInterval(() => {
+    if (S.scene === 'playing' && S.playing && S.time < S.duration * 0.95) {
+      S.time += 1;
+      S.buffered = Math.min(S.duration, S.buffered + 1);
+      updateTime();
+    }
+  }, 1000);
+
+  // 播放/暂停
+  function togglePlay(){
+    if (!['playing','paused'].includes(S.scene)) return;
+    S.playing = !S.playing;
+    S.scene = S.playing ? 'playing' : 'paused';
+    updatePlayBtn(); setStageClass();
+    document.querySelectorAll('.scene-btn').forEach(b => b.classList.toggle('active', b.dataset.scene === S.scene));
+  }
+  $('btnPlay').addEventListener('click', togglePlay);
+  $('playCenter').addEventListener('click', togglePlay);
+  stage.addEventListener('click', (e) => {
+    if (e.target.closest('button,.seg-panel,.overlay,.dialog,.organize-strip,.source-switch-row,.help-panel,.hover-preview')) return;
+    if ($('segDialog').classList.contains('data-hidden') === false) return;
+    togglePlay();
+  });
+
+  // 音量
+  const volIco = $('volIco');
+  function updateVol(){
+    volIco.innerHTML = (S.muted || S.volume === 0)
+      ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>'
+      : S.volume < 0.5
+        ? '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>'
+        : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>';
+    $('volRange').value = S.muted ? 0 : S.volume;
+  }
+  $('btnVol').addEventListener('click', () => { S.muted = !S.muted; updateVol(); toast(S.muted ? '已静音' : '已恢复音量'); });
+  $('volWrap').addEventListener('mouseenter', () => show($('volPop'), true));
+  $('volWrap').addEventListener('mouseleave', () => show($('volPop'), false));
+  $('volRange').addEventListener('input', (e) => {
+    S.volume = Number(e.target.value); S.muted = S.volume === 0; updateVol();
+  });
+
+  // 进度条 seek
+  const track = $('progressTrack');
+  track.addEventListener('mousemove', (e) => {
+    const r = track.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    const t = Math.floor(pct * S.duration);
+    const pv = $('hoverPreview');
+    pv.style.left = Math.max(0, Math.min(r.width - 216, (r.width - 0) * pct - 0)) + 'px';
+    // 让预览卡不溢出屏幕
+    const previewW = 216;
+    const left = Math.max(8, Math.min(r.width - previewW - 8, pct * r.width - previewW / 2));
+    pv.style.left = left + 'px';
+    $('hoverTime').textContent = fmt(t);
+  });
+  track.addEventListener('click', (e) => {
+    const r = track.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    S.time = Math.floor(pct * S.duration);
+    updateTime();
+    toast(`已跳转到 ${fmt(S.time)}`);
+  });
+
+  // 整理带：标记起点/终点
+  $('btnMarkIn').addEventListener('click', () => {
+    S.markStart = S.time;
+    $('markTime').textContent = fmt(S.time);
+    show($('markChip'), true);
+    $('btnMarkOut').disabled = false;
+    $('btnMarkIn').classList.add('active');
+    $('lblMarkIn').textContent = '已标记起点';
+    toast('已标记片段起点');
+  });
+  $('btnMarkOut').addEventListener('click', () => {
+    if (S.markStart == null) { toast('请先按 I 标记起点'); return; }
+    show($('segDialog'), true);
+  });
+  function closeSegDialog(){ show($('segDialog'), false); }
+  $('segDlgClose').addEventListener('click', closeSegDialog);
+  $('segDlgCancel').addEventListener('click', closeSegDialog);
+  $('segDlgSave').addEventListener('click', () => {
+    closeSegDialog();
+    S.markStart = null;
+    show($('markChip'), false);
+    $('btnMarkOut').disabled = true;
+    $('btnMarkIn').classList.remove('active');
+    $('lblMarkIn').textContent = '片段起点';
+    toast('片段已保存');
+  });
+
+  // 快速打标
+  const tagDialog = $('tagDialog');
+  function openTagDialog(){ show(tagDialog, true); }
+  function closeTagDialog(){ show(tagDialog, false); }
+  const tagBtn = document.querySelector('.organize-strip .obtn[title*="快速打标"]');
+  if (tagBtn) tagBtn.addEventListener('click', openTagDialog);
+  $('tagDlgClose').addEventListener('click', closeTagDialog);
+  $('tagDlgCancel').addEventListener('click', closeTagDialog);
+  tagDialog.querySelector('.btn.primary').addEventListener('click', () => { closeTagDialog(); toast('打标完成'); });
+  // chips 多选
+  document.querySelectorAll('.tag-chip').forEach(c => c.addEventListener('click', () => c.classList.toggle('sel')));
+
+  // 评分
+  document.querySelector('.rating-wrap .obtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    show($('starPop'), $('starPop').classList.contains('data-hidden'));
+  });
+  document.querySelectorAll('.star-btn').forEach((b, i) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      S.rating = i + 1;
+      document.querySelectorAll('.star-btn').forEach((sb, j) => sb.classList.toggle('filled', j <= i));
+      const stars = '★'.repeat(S.rating) + '☆'.repeat(5 - S.rating);
+      $('starsDisplay').textContent = stars;
+      show($('starPop'), false);
+      toast(`评分 ${S.rating} 星`);
+    });
+  });
+
+  // 收藏
+  $('btnFav').addEventListener('click', () => {
+    S.fav = !S.fav;
+    $('btnFav').classList.toggle('on', S.fav);
+    $('btnFav').style.color = S.fav ? 'var(--amber)' : '';
+    toast(S.fav ? '已收藏' : '已取消收藏');
+  });
+
+  // 字幕
+  $('btnCC').addEventListener('click', () => {
+    S.cc = !S.cc;
+    $('btnCC').classList.toggle('on', S.cc);
+    show($('subtitle'), S.cc && !['loading','missing','error','restricted'].includes(S.scene));
+    toast(S.cc ? '字幕已开启' : '字幕已关闭');
+  });
+
+  // 各 pop 菜单
+  $('btnSpeed').addEventListener('click', (e) => { e.stopPropagation(); closeAllPops(); show($('speedPop'), true); });
+  $('btnSub').addEventListener('click', (e) => { e.stopPropagation(); closeAllPops(); show($('subPop'), true); });
+  $('btnQuality').addEventListener('click', (e) => { e.stopPropagation(); closeAllPops(); show($('qualityPop'), true); });
+  document.querySelectorAll('#speedPop .menu-item').forEach(m => m.addEventListener('click', () => {
+    S.rate = Number(m.dataset.sp); $('btnSpeed').textContent = S.rate + '×';
+    document.querySelectorAll('#speedPop .menu-item').forEach(x => { x.classList.toggle('active', x === m); const t = x.querySelector('.tick'); if (t) t.remove(); });
+    m.insertAdjacentHTML('beforeend','<span class="tick">✓</span>');
+    show($('speedPop'), false); toast(`播放速度 ${S.rate}×`);
+  }));
+  document.querySelectorAll('#subPop .menu-item').forEach(m => m.addEventListener('click', () => {
+    const idx = Number(m.dataset.sub);
+    S.subIdx = idx;
+    if (idx === -1) { S.cc = false; $('btnCC').classList.remove('on'); show($('subtitle'), false); }
+    else { S.cc = true; $('btnCC').classList.add('on'); show($('subtitle'), true); }
+    document.querySelectorAll('#subPop .menu-item').forEach(x => { x.classList.toggle('active', x === m); const t = x.querySelector('.tick'); if (t) t.remove(); });
+    m.insertAdjacentHTML('beforeend','<span class="tick">✓</span>');
+    show($('subPop'), false);
+    toast(idx === -1 ? '字幕已关闭' : `字幕：${m.querySelector('.lang').textContent}`);
+  }));
+  document.querySelectorAll('#qualityPop .menu-item').forEach(m => m.addEventListener('click', () => {
+    const idx = Number(m.dataset.q);
+    S.quality = idx === -1 ? '自动' : m.textContent.trim();
+    $('btnQuality').textContent = S.quality;
+    document.querySelectorAll('#qualityPop .menu-item').forEach(x => { x.classList.toggle('active', x === m); const t = x.querySelector('.tick'); if (t) t.remove(); });
+    m.insertAdjacentHTML('beforeend','<span class="tick">✓</span>');
+    show($('qualityPop'), false);
+    toast(`清晰度：${S.quality}`);
+  }));
+  stage.addEventListener('click', (e) => {
+    if (!e.target.closest('.pop-wrap,.pop')) closeAllPops();
+  });
+
+  // 整理带锁定（X）
+  $('btnOrg').addEventListener('click', () => {
+    S.orgPin = !S.orgPin;
+    $('btnOrg').classList.toggle('on', S.orgPin);
+    toast(S.orgPin ? '整理带已锁定（常驻）' : '整理带已解锁（自动隐藏）');
+  });
+
+  // 片段面板
+  $('btnSeg').addEventListener('click', () => {
+    S.segPanel = !S.segPanel;
+    show($('segPanel'), S.segPanel);
+  });
+  $('segClose').addEventListener('click', () => { S.segPanel = false; show($('segPanel'), false); });
+
+  // 快捷键帮助
+  function toggleHelp(force){
+    const p = $('helpPanel');
+    const next = force !== undefined ? force : p.classList.contains('data-hidden');
+    show(p, next);
+  }
+  $('helpBtn').addEventListener('click', () => toggleHelp());
+  $('helpClose').addEventListener('click', () => toggleHelp(false));
+
+  // 多源切换
+  document.querySelectorAll('.source-switch-btn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.source-switch-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    toast(`已切换到 ${b.textContent}`);
+  }));
+
+  // 全屏（浏览器全屏）
+  $('btnFs').addEventListener('click', () => {
+    if (!document.fullscreenElement) stage.requestFullscreen?.().catch(()=>{});
+    else document.exitFullscreen?.();
+  });
+  $('backBtn').addEventListener('click', () => { toast('返回来源页（Esc）'); });
+
+  // 设计说明抽屉
+  const drawer = $('notesDrawer');
+  $('notesToggle').addEventListener('click', () => drawer.classList.toggle('open'));
+  $('notesClose').addEventListener('click', () => drawer.classList.remove('open'));
+
+  /* ---------- 键盘 ---------- */
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    const anyDialog = !$('segDialog').classList.contains('data-hidden') || !$('tagDialog').classList.contains('data-hidden');
+    if (e.key === 'Escape') {
+      if (!$('segDialog').classList.contains('data-hidden')) { closeSegDialog(); return; }
+      if (!$('tagDialog').classList.contains('data-hidden')) { closeTagDialog(); return; }
+      if (!$('helpPanel').classList.contains('data-hidden')) { toggleHelp(false); return; }
+      if (S.segPanel) { S.segPanel = false; show($('segPanel'), false); return; }
+      closeAllPops();
+      return;
+    }
+    if (anyDialog) return;
+    if (k === ' ' || k === 'spacebar') { e.preventDefault(); togglePlay(); }
+    else if (k === 'i') { $('btnMarkIn').click(); }
+    else if (k === 'o') { if (!S.markStart) { toast('请先按 I 标记起点'); } else $('btnMarkOut').click(); }
+    else if (k === 't') { openTagDialog(); }
+    else if (k === 'x') { $('btnOrg').click(); }
+    else if (k === '?') { toggleHelp(); }
+    else if (k === 'c') { $('btnCC').click(); }
+    else if (k === 'm') { $('btnVol').click(); }
+    else if (k === 'r') { $('btnFav').click(); }
+    else if (k === 'arrowleft') { S.time = Math.max(0, S.time - 10); updateTime(); toast(fmt(S.time)); }
+    else if (k === 'arrowright') { S.time = Math.min(S.duration, S.time + 10); updateTime(); toast(fmt(S.time)); }
+    else if (k === 'j') { S.time = Math.max(0, S.time - 10); updateTime(); }
+    else if (k === 'l') { S.time = Math.min(S.duration, S.time + 10); updateTime(); }
+    else if (/^[1-5]$/.test(k)) {
+      const n = Number(k);
+      document.querySelectorAll('.star-btn').forEach((sb, j) => sb.classList.toggle('filled', j < n));
+      $('starsDisplay').textContent = '★'.repeat(n) + '☆'.repeat(5 - n);
+      toast(`评分 ${n} 星`);
+    }
+    else if (k === 'f') { $('btnFs').click(); }
+  });
+
+  // 鼠标移动显示 UI，静止 3s 隐藏（仅播放中）
+  let hideT;
+  function poke(){
+    if (S.scene !== 'playing') return;
+    stage.classList.add('show-ui');
+    clearTimeout(hideT);
+    hideT = setTimeout(() => {
+      if (S.scene === 'playing' && !S.segPanel && !$('helpPanel').classList.contains('data-hidden') === false) {
+        stage.classList.remove('show-ui');
+      }
+    }, 3000);
+  }
+  stage.addEventListener('mousemove', poke);
+  stage.addEventListener('mousedown', poke);
+  poke();
+
+  /* ---------- 初始化 ---------- */
+  updatePlayBtn(); updateVol(); updateTime(); updatePlayBtn();
+  show($('subtitle'), true);
+  // 整理带初始展示（模拟首次进入提示）
+  setTimeout(() => { if (S.scene === 'playing') poke(); }, 800);
+})();
+</script>
+</body>
+</html>
