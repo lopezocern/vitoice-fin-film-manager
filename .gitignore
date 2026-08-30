@@ -45,6 +45,18 @@ backend/_smoke*.db
 .reasonix/
 .trae-html-share-packages/
 
+# Frontend build artifacts
+frontend/.svelte-kit/
+
+# Tauri generated schemas
+src-tauri/gen/
+
+# Local scripts containing private API keys (never commit)
+generate_image_makabaka.ps1
+*.local.ps1
+*.key
+*.pem
+
 # Bundled ffmpeg binaries (too large for git, installed via script or manually)
 # Keep the directory but ignore the executables
 backend/bin/*.exe
