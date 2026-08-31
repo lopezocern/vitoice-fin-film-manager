@@ -343,7 +343,6 @@
               <button
                 class="tag-group-head"
                 onclick={() => toggleTagGroup(group.typeId)}
-                oncontextmenu={() => { /* 媒体页/配置页等禁用右键菜单（管理页才有） */ }}
               >
                 <span class="tag-group-arrow">{group.open ? '▾' : '▸'}</span>
                 <span
@@ -376,7 +375,6 @@
                       class:active={isActive('tag', tag.id)}
                       data-tip={tag.name}
                       onclick={() => navigate({ type: 'tag', value: tag.id, label: tag.name })}
-                      oncontextmenu={() => { /* 媒体页/配置页等禁用右键菜单（管理页才有） */ }}
                     >
                       <span class="tag-dot" style={safeColor(tag.color) ? `background:${safeColor(tag.color)}` : ''}></span>
                       <span class="item-label">{tag.name}</span>

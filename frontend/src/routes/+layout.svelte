@@ -24,6 +24,16 @@
     helpTimer = setTimeout(() => (helpToast = null), 5000);
   }
 
+  // ---- 桌面端右键菜单策略（全局兜底）----
+  // WebView2 原生右键（后退/刷新/检查元素）对桌面客户端是噪音，统一禁用；
+  // 输入编辑区豁免（保留复制/粘贴原生菜单）；
+  // 自定义右键菜单（管理列表/目录树/标签/详情标签）自带 preventDefault 并打开自绘菜单，不受影响。
+  function onGlobalContextMenu(e: MouseEvent): void {
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    e.preventDefault();
+  }
+
   onMount(() => {
     const handler = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -49,6 +59,8 @@
     return () => window.removeEventListener('keydown', handler);
   });
 </script>
+
+<svelte:window oncontextmenu={onGlobalContextMenu} />
 
 <AppShell>
   {@render children()}
