@@ -246,7 +246,7 @@
 
 <svelte:head><title>资源库 — vitoice</title></svelte:head>
 
-<div class="lib-page" oncontextmenu={(e) => e.preventDefault()}>
+<div class="lib-page">
   <div class="page-head">
     <div class="head-left">
       <h1>资源库</h1>

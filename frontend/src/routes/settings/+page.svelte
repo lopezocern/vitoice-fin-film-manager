@@ -880,7 +880,7 @@
   </div>
 {/snippet}
 
-<div class="settings-page" oncontextmenu={(e) => e.preventDefault()}>
+<div class="settings-page">
   <!-- 右侧设置内容 -->
   <section class="cat-content">
     {#if loading && !loaded}

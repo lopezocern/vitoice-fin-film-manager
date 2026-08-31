@@ -983,7 +983,7 @@
 
 <svelte:head><title>{heading} — vitoice</title></svelte:head>
 
-<div class="media-page" oncontextmenu={(e) => e.preventDefault()}>
+<div class="media-page">
   <!-- 顶部装饰光晕 -->
   <div class="ambient-glow" aria-hidden="true"></div>
 
