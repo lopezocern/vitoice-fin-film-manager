@@ -118,18 +118,7 @@
   <div class="left" data-tauri-drag-region>
     <button class="logo" data-tauri-drag-region="false" onclick={() => goto('/media?mode=center')} aria-label="vitoice 首页"
         title="回到观看中心">
-      <svg class="logo-mark" viewBox="0 0 64 64" width="24" height="24" fill="none" aria-hidden="true">
-        <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#logo-grad)"></rect>
-        <path d="M19 19.5v25l20.5-12.5z" fill="#f4fffb"></path>
-        <rect x="44" y="24" width="4" height="16" rx="2" fill="#f4fffb"></rect>
-        <rect x="52" y="19" width="4" height="26" rx="2" fill="#f4fffb" opacity="0.78"></rect>
-        <defs>
-          <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32">
-            <stop stop-color="#3ed6a4"></stop>
-            <stop offset="1" stop-color="#0e9473"></stop>
-          </linearGradient>
-        </defs>
-      </svg>
+      <img class="logo-mark" src="/logo-mark.png" width="24" height="24" alt="" aria-hidden="true" />
       <span class="logo-text">vitoice</span>
     </button>
     <nav class="tabs" data-tauri-drag-region>

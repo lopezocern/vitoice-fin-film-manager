@@ -1023,6 +1023,7 @@
       {#if activeCategory === 'about'}
         <!-- 关于分区：静态信息 -->
         <div class="about-block">
+          <img class="about-mark" src="/logo-mark.png" width="64" height="64" alt="vitoice logo" />
           <div class="about-logo">vitoice</div>
           <div class="about-version">版本 {APP_VERSION}</div>
           <p class="about-desc">
@@ -2030,6 +2031,14 @@
   /* ============ 关于 ============ */
   .about-block {
     max-width: 480px;
+  }
+
+  .about-mark {
+    display: block;
+    width: 64px;
+    height: 64px;
+    border-radius: 14px;
+    margin-bottom: 12px;
   }
 
   .about-logo {
