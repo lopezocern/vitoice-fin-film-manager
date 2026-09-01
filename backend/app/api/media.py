@@ -1978,6 +1978,78 @@ async def upload_poster(
     }
 
 
+@router.post("/{media_id}/poster-from-frame")
+async def poster_from_frame(
+    media_id: int,
+    t: float = Query(0, ge=0, description="Timestamp in seconds (player currentTime)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Extract the video frame at timestamp t and set it as the media's cover.
+
+    Server-side ffmpeg extraction from the ORIGINAL local file — no canvas
+    taint concerns, full resolution, and the exact frame the user paused on.
+    Marks poster_source="custom" so subsequent scrapes won't overwrite it.
+    """
+    media = await _get_media_or_404(db, media_id)
+    if not media.file_path:
+        raise HTTPException(status_code=400, detail="网络视频暂不支持从当前帧生成封面")
+    if media.file_missing:
+        raise HTTPException(status_code=410, detail="本地文件已丢失")
+    path = Path(media.file_path)
+    if not path.is_file():
+        raise HTTPException(status_code=410, detail="本地文件不存在")
+
+    # Clamp to valid range (mirror the screenshot endpoint)
+    duration = media.duration or 0
+    timestamp = max(0, min(t, duration - 0.1)) if duration > 0 else max(0, t)
+
+    from app.config import settings as _cfg
+    from app.services.thumbnail import _generate_thumbnail_sync
+
+    _cfg.poster_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = _cfg.poster_dir / f"{media_id}_frame_tmp.jpg"
+
+    # Exact-frame extraction: smart_frame forcibly disabled so the frame is
+    # precisely the one the user paused on (never a "nicer" candidate).
+    # Cap width at the source resolution (never upscale), max 1920.
+    cover_w = min(1920, media.width) if (media.width or 0) > 0 else 1920
+    success = await asyncio.to_thread(
+        _generate_thumbnail_sync,
+        str(path),
+        str(tmp_path),
+        timestamp,
+        cover_w,
+        95,
+        False,  # smart_frame=False — user picked this exact frame
+        duration,
+    )
+    if not success or not tmp_path.is_file():
+        raise HTTPException(status_code=500, detail="帧提取失败，请稍后重试")
+
+    # Replace old poster (guarded to managed asset roots) only after success
+    if media.poster_path and _is_within_asset_root(media.poster_path):
+        old_path = Path(media.poster_path)
+        if old_path.is_file() and old_path != tmp_path:
+            try:
+                old_path.unlink()
+            except OSError:
+                pass
+
+    final_path = _cfg.poster_dir / f"{media_id}.jpg"
+    if final_path != tmp_path:
+        await asyncio.to_thread(tmp_path.replace, final_path)
+
+    media.poster_path = str(final_path)
+    media.poster_source = "custom"  # 后续刮削不会覆盖用户自选封面
+    await db.flush()
+
+    return {
+        "success": True,
+        "poster_path": str(final_path),
+        "poster_url": f"/api/media/{media_id}/poster?t={int(datetime.now(timezone.utc).timestamp())}",
+    }
+
+
 @router.delete("/{media_id}/poster")
 async def delete_poster(
     media_id: int,

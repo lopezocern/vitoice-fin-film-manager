@@ -1250,6 +1250,40 @@
     }
   }
 
+  // —— 将当前帧设为封面 ——
+  // 服务端 ffmpeg 从原文件精确抽取当前时间戳的帧（POST /media/{id}/poster-from-frame）：
+  // 无 canvas 跨域污染问题、原生分辨率、与暂停画面逐帧一致；落盘后 poster_source="custom"
+  // （刮削不覆盖），updated_at onupdate 自动破 7 天封面缓存。
+  let settingCover = $state(false);
+  async function setCoverFromFrame(): Promise<void> {
+    if (!videoEl || isImage || !media) {
+      toast(isImage ? '图片媒体无需设置封面' : '无法获取当前帧');
+      return;
+    }
+    if (settingCover) return;
+    settingCover = true;
+    try {
+      const t = videoEl.currentTime || 0;
+      const resp = await fetch(
+        `${BASE_URL}/media/${media.id}/poster-from-frame?t=${encodeURIComponent(String(t))}`,
+        { method: 'POST' }
+      );
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || '设置封面失败');
+      }
+      // 闪光反馈 + 通知列表/详情刷新（新 updated_at 破封面缓存）
+      flash = true;
+      setTimeout(() => (flash = false), 180);
+      librariesStore.notifyChanged();
+      toast('已将当前帧设为封面');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '设置封面失败');
+    } finally {
+      settingCover = false;
+    }
+  }
+
   // —— 控制层可见性 ——
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
   function showControls(): void {
@@ -1980,6 +2014,17 @@
               </div>
             {/if}
           </div>
+
+          <!-- 将当前帧设为封面（本地文件专属：服务端从原文件抽帧） -->
+          <button
+            class="ctl"
+            onclick={setCoverFromFrame}
+            disabled={isImage || settingCover || !media?.file_path || !!media?.file_missing}
+            title={media?.file_path ? '将当前帧设为封面' : '网络视频暂不支持从当前帧生成封面'}
+            aria-label="将当前帧设为封面"
+          >
+            {settingCover ? '…' : '🖼'}
+          </button>
 
           <!-- 整理带开关 -->
           <button
