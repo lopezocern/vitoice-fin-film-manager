@@ -365,6 +365,22 @@ async def list_media(
         resp.tags = [TagResponse.model_validate(vt.tag) for vt in m.video_tags]
         response_items.append(resp)
 
+    # 缩略图集存在性 — 一次目录扫描填充（避免每卡片一次 stat 的 N+1）
+    if response_items:
+        from app.services.contact_sheet import contact_sheet_path
+
+        cs_dir = contact_sheet_path(0).parent
+        try:
+            existing_cs = {
+                int(f.stem)
+                for f in cs_dir.glob("*.jpg")
+                if f.stem.isdigit()
+            }
+        except OSError:
+            existing_cs = set()
+        for resp in response_items:
+            resp.has_contact_sheet = resp.id in existing_cs
+
     return MediaListResponse(
         items=response_items,
         total=total,

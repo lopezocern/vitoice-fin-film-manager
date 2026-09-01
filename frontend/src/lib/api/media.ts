@@ -114,6 +114,8 @@ export interface Media {
   height?: number;
   thumbnail?: string;
   poster?: string;
+  /** 4×4 缩略图集是否已生成（列表接口按文件存在性返回） */
+  has_contact_sheet?: boolean;
   rating: number;
   favorite: boolean;
   tags: string[];
@@ -306,6 +308,7 @@ export function normalizeMedia(raw: any): Media {
     height: raw?.height ?? undefined,
     thumbnail: raw?.thumbnail_path ?? undefined,
     poster: raw?.poster_path ?? undefined,
+    has_contact_sheet: !!raw?.has_contact_sheet,
     rating: raw?.rating ?? 0,
     favorite: !!raw?.is_favorite,
     tags,

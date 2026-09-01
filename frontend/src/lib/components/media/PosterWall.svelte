@@ -7,6 +7,7 @@
   import { getProgress } from './types';
   import { settingsStore } from '$lib/stores/settings.svelte';
   import { librariesStore } from '$lib/stores/libraries.svelte';
+  import ContactSheetLightbox from './ContactSheetLightbox.svelte';
 
   let {
     items,
@@ -27,6 +28,19 @@
   const restrictedLibIds = $derived(
     new Set(librariesStore.libraries.filter(l => l.is_restricted).map(l => String(l.id)))
   );
+
+  // 缩略图集灯箱
+  let csOpen = $state(false);
+  let csViewer = $state<{ id: string; title: string; version: string } | null>(null);
+  function openContactSheet(media: { id: string; has_contact_sheet?: boolean; title?: string; filename?: string; updated_at?: string }): void {
+    if (!media.has_contact_sheet) return;
+    csViewer = {
+      id: String(media.id),
+      title: media.title ?? media.filename ?? '缩略图集',
+      version: String(media.updated_at ?? '')
+    };
+    csOpen = true;
+  }
 
   function shouldMask(media: Media): boolean {
     return settingsStore.maskRestricted && restrictedLibIds.has(String(media.library_id));
@@ -97,6 +111,21 @@
       {#if media.duration}
         <span class="duration">{formatTime(media.duration)}</span>
       {/if}
+      <span
+        class="cs-entry"
+        class:disabled={!media.has_contact_sheet}
+        title={media.has_contact_sheet ? '查看缩略图集' : '未生成缩略图集'}
+        role="button"
+        tabindex="-1"
+        onclick={(e) => { e.stopPropagation(); openContactSheet(media); }}
+      >
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+          <rect x="3" y="3" width="8" height="8" rx="1" />
+          <rect x="13" y="3" width="8" height="8" rx="1" />
+          <rect x="3" y="13" width="8" height="8" rx="1" />
+          <rect x="13" y="13" width="8" height="8" rx="1" />
+        </svg>
+      </span>
       {#if !media.file_missing && (media.source_type === 'network' || media.source_type === 'both')}
         <span class="net-badge" title={media.source_type === 'both' ? '本地 + 网络源' : '网络媒体'}>
           {media.source_type === 'both' ? '本+网' : '网'}
@@ -137,6 +166,8 @@
   </button>
   {/each}
 </div>
+
+<ContactSheetLightbox bind:open={csOpen} mediaId={csViewer?.id ?? null} title={csViewer?.title} version={csViewer?.version} />
 
 <style>
   .poster-wall {
@@ -268,7 +299,7 @@
   .duration {
     position: absolute;
     bottom: 6px;
-    right: 6px;
+    right: 30px; /* 左移给右下角缩略图集入口让位 */
     background: rgba(0, 0, 0, 0.7);
     color: #fff;
     font-size: 11px;
@@ -276,6 +307,27 @@
     border-radius: 4px;
     font-variant-numeric: tabular-nums;
   }
+
+  /* 右下角缩略图集入口：有缩略图集 → 点击灯箱展示；无 → 置灰 */
+  .cs-entry {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
+    z-index: 4;
+  }
+  .cs-entry:hover { background: var(--accent); color: #061812; }
+  .cs-entry.disabled { opacity: 0.35; cursor: default; }
+  .cs-entry.disabled:hover { background: rgba(0, 0, 0, 0.65); color: #fff; }
 
   .net-badge {
     position: absolute;

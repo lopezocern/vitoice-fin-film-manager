@@ -177,6 +177,9 @@ class MediaResponse(ORMBaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # 缩略图集（4×4 contact sheet）是否已生成 — 列表接口按文件存在性填充
+    has_contact_sheet: bool = False
+
     # Nested relations (populated when eagerly loaded; default to empty)
     urls: list[MediaUrlResponse] = []
     segments: list[SegmentResponse] = []

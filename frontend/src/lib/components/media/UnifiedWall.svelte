@@ -8,6 +8,7 @@
   import { getProgress } from './types';
   import { settingsStore } from '$lib/stores/settings.svelte';
   import { librariesStore } from '$lib/stores/libraries.svelte';
+  import ContactSheetLightbox from './ContactSheetLightbox.svelte';
 
   /** A unified item is either a Series (aggregated TV show) or a standalone Media. */
   export type UnifiedItem =
@@ -73,6 +74,19 @@
 
   function itemKey(item: UnifiedItem): string {
     return item.kind + '-' + (item.kind === 'series' ? item.data.id : item.data.id);
+  }
+
+  // 缩略图集灯箱（仅媒体卡片；系列卡片无缩略图集）
+  let csOpen = $state(false);
+  let csViewer = $state<{ id: string; title: string; version: string } | null>(null);
+  function openContactSheet(m: Media): void {
+    if (!m.has_contact_sheet) return;
+    csViewer = {
+      id: String(m.id),
+      title: m.title ?? m.filename ?? '缩略图集',
+      version: String(m.updated_at ?? '')
+    };
+    csOpen = true;
   }
 </script>
 
@@ -145,6 +159,21 @@
         {#if m.duration}
           <span class="badge duration">{formatTime(m.duration)}</span>
         {/if}
+        <span
+          class="cs-entry"
+          class:disabled={!m.has_contact_sheet}
+          title={m.has_contact_sheet ? '查看缩略图集' : '未生成缩略图集'}
+          role="button"
+          tabindex="-1"
+          onclick={(e) => { e.stopPropagation(); openContactSheet(m); }}
+        >
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="3" y="3" width="8" height="8" rx="1" />
+            <rect x="13" y="3" width="8" height="8" rx="1" />
+            <rect x="3" y="13" width="8" height="8" rx="1" />
+            <rect x="13" y="13" width="8" height="8" rx="1" />
+          </svg>
+        </span>
         {#if !m.file_missing && (m.source_type === 'network' || m.source_type === 'both')}
           <span class="badge net-badge" title={m.source_type === 'both' ? '本地 + 网络源' : '网络媒体'}>
             {m.source_type === 'both' ? '本+网' : '网'}
@@ -202,6 +231,8 @@
     </div>
   {/if}
 </div>
+
+<ContactSheetLightbox bind:open={csOpen} mediaId={csViewer?.id ?? null} title={csViewer?.title} version={csViewer?.version} />
 
 <style>
   .unified-view { display: block; }
@@ -345,8 +376,29 @@
 
   .duration {
     bottom: 6px;
-    right: 6px;
+    right: 30px; /* 左移给右下角缩略图集入口让位 */
   }
+
+  /* 右下角缩略图集入口（仅媒体卡片）：有缩略图集 → 点击灯箱展示；无 → 置灰 */
+  .cs-entry {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
+    z-index: 4;
+  }
+  .cs-entry:hover { background: var(--accent); color: #061812; }
+  .cs-entry.disabled { opacity: 0.35; cursor: default; }
+  .cs-entry.disabled:hover { background: rgba(0, 0, 0, 0.65); color: #fff; }
 
   .fav {
     top: 6px;

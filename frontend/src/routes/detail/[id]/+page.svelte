@@ -1795,41 +1795,57 @@
     background: #ff3b30;
   }
 
-  /* ---- 缩略图集（4×4 contact sheet，手动触发） ---- */
+  /* ---- 缩略图集（4×4 contact sheet，手动触发）—— 对齐 DetailSegments .section 区块规范 ---- */
   .cs-section {
-    margin-top: 18px;
-    padding: 16px 18px;
-    background: var(--bg-soft, rgba(128, 128, 128, 0.06));
-    border: 1px solid var(--rule, rgba(128, 128, 128, 0.15));
-    border-radius: var(--radius-lg, 12px);
+    max-width: 1280px;
+    margin: 0 auto 28px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--rule);
   }
 
   .cs-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     margin-bottom: 12px;
   }
 
   .cs-head h3 {
     margin: 0;
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .cs-head h3::before {
+    content: '';
+    width: 4px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--accent);
+    display: inline-block;
   }
 
   .cs-btn {
-    padding: 5px 14px;
-    font-size: 12.5px;
-    border: 1px solid var(--rule, rgba(128, 128, 128, 0.25));
-    border-radius: var(--radius-full, 999px);
-    background: transparent;
-    color: var(--text);
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font-size: 12px;
     cursor: pointer;
-    transition: background 120ms ease;
+    padding: 2px 6px;
+    border-radius: var(--radius);
+    transition: background 200ms;
   }
 
   .cs-btn:hover:not(:disabled) {
-    background: rgba(128, 128, 128, 0.12);
+    background: var(--accent-soft);
   }
 
   .cs-btn:disabled {
