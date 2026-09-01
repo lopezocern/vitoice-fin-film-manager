@@ -613,6 +613,44 @@ async def get_filter_options(db: AsyncSession = Depends(get_db)):
     }
 
 
+# ---------------------------------------------------------------------------
+# Missing-file reconciliation (shadow-duplicate merge)
+# NOTE: must be declared BEFORE /{media_id} routes — "missing" would otherwise
+# be captured by the int path param.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/missing/reconcile-preview")
+async def missing_reconcile_preview(
+    library_id: int | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview file_missing records that have a live same-name twin to merge into."""
+    from app.services.missing_reconcile import find_pairs
+
+    pairs = await find_pairs(db, [library_id] if library_id else None)
+    return {"pairs": pairs, "count": len(pairs)}
+
+
+@router.post("/missing/reconcile")
+async def missing_reconcile_execute(
+    payload: dict, db: AsyncSession = Depends(get_db)
+):
+    """Execute reconciliation for the given pairs.
+
+    Body: ``{"pairs": [{"missing_id": int, "live_id": int}, ...]}``.
+    Each pair is re-validated at execute time — stale pairs fail individually
+    without blocking the rest.
+    """
+    from app.services.missing_reconcile import reconcile_pairs
+
+    pairs = payload.get("pairs") or []
+    if not pairs:
+        raise HTTPException(status_code=400, detail="pairs is required")
+    result = await reconcile_pairs(db, pairs)
+    return result
+
+
 @router.get("/{media_id}", response_model=MediaResponse)
 async def get_media(media_id: int, db: AsyncSession = Depends(get_db)):
     """Get media detail with urls, segments, tags, and subtitles."""

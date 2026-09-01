@@ -324,6 +324,59 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
                 )
                 to_create = kept
 
+        # Shadow-duplicate guard: a file copied to a new location, scanned
+        # (fresh record created), then original deleted offline leaves BOTH a
+        # missing old record and an identical live new record. Merge instead
+        # of marking missing (prevents recurring shadow duplicates).
+        shadow_merged = 0
+        if missing_ids:
+            from app.services.missing_reconcile import reconcile_pair
+
+            mrows = (await session.execute(
+                select(Media.id, Media.file_name, Media.file_size).where(
+                    Media.id.in_(missing_ids)
+                )
+            )).fetchall()
+            merged_ids: list[int] = []
+            for mid, fname, fsize in mrows:
+                dup = (await session.execute(
+                    select(Media.id)
+                    .where(
+                        Media.library_id == library_id,
+                        Media.file_name == fname,
+                        Media.id != mid,
+                        Media.is_deleted.is_(False),
+                        Media.file_missing.is_(False),
+                    )
+                    .limit(2)
+                )).scalars().all()
+                live_id = None
+                if fsize is not None:
+                    exact = (await session.execute(
+                        select(Media.id)
+                        .where(Media.id.in_(dup), Media.file_size == fsize)
+                        .limit(1)
+                    )).scalar_one_or_none()
+                    live_id = exact or (dup[0] if dup else None)
+                else:
+                    live_id = dup[0] if dup else None
+                if live_id is not None:
+                    try:
+                        await reconcile_pair(session, mid, live_id, pending_missing=True)
+                        merged_ids.append(mid)
+                    except ValueError as exc:
+                        logger.warning(
+                            "Shadow-duplicate merge failed for media %s: %s", mid, exc
+                        )
+            if merged_ids:
+                for mid in merged_ids:
+                    missing_ids.remove(mid)
+                shadow_merged = len(merged_ids)
+                logger.info(
+                    "Merged %d shadow-duplicate pair(s) in library %s",
+                    shadow_merged, library_id,
+                )
+
         # Mark missing files
         if missing_ids:
             for mid in missing_ids:
@@ -407,7 +460,8 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
                 .values(file_modified_at=mod_time, file_size=file_size)
             )
 
-        if missing_ids or restored_ids or to_update or path_migrations or to_relink:
+        if (missing_ids or shadow_merged or restored_ids or to_update
+                or path_migrations or to_relink):
             await session.commit()
 
         # Guard against concurrent scans: re-check file_paths right before insert

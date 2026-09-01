@@ -243,6 +243,28 @@ export interface RelatedMediaItem {
   reason: 'series' | 'tag' | 'library';
 }
 
+/** 缺失文件找回 — 一对「缺失记录 → 存活同名记录」。 */
+export interface ReconcilePair {
+  missing_id: number;
+  live_id: number;
+  file_name: string;
+  file_size: number | null;
+  size_matched: boolean;
+  missing_path: string | null;
+  live_path: string | null;
+  missing_progress: number;
+  live_progress: number;
+  live_watched: boolean;
+  missing_tag_count: number;
+  live_tag_count: number;
+}
+
+export interface ReconcilePreview {
+  pairs: ReconcilePair[];
+  count: number;
+}
+
+
 /** Map a backend Media object to the frontend-shaped Media object. */
 export function normalizeMedia(raw: any): Media {
   const mime: string = raw?.mime_type ?? '';
@@ -471,6 +493,19 @@ export const mediaApi = {
     );
     return raw?.items ?? [];
   },
+
+  /** 缺失文件找回：预览可合并的「缺失记录 → 存活同名记录」对。noCache — 执行合并后立即重查，不能吃 30s GET 缓存。 */
+  reconcilePreview: async (libraryId?: number): Promise<ReconcilePreview> => {
+    const params: Params = {};
+    if (libraryId != null) params.library_id = libraryId;
+    return client.get<ReconcilePreview>('/media/missing/reconcile-preview', params, undefined, true);
+  },
+
+  /** 缺失文件找回：执行合并（用户数据并入存活记录，旧记录进回收站）。 */
+  reconcileExecute: async (
+    pairs: { missing_id: number; live_id: number }[]
+  ): Promise<{ merged: number[]; failed: { missing_id: number | null; error: string }[]; merged_count: number }> =>
+    client.post('/media/missing/reconcile', { pairs }),
 
   /**
    * Contact sheet URL (4×4, 1920×1080). Pass a version (e.g. Date.now())

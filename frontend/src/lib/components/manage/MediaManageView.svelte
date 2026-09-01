@@ -24,6 +24,7 @@
   import NetworkImportDialog from '$lib/components/manage/NetworkImportDialog.svelte';
   import EditMediaDialog from '$lib/components/manage/EditMediaDialog.svelte';
   import DuplicatesDialog from '$lib/components/manage/DuplicatesDialog.svelte';
+  import ReconcileDialog from '$lib/components/manage/ReconcileDialog.svelte';
 
   // ---- 父组件传入的共享数据（库、标签） ----
   let {
@@ -67,6 +68,7 @@
   let deleteDialogOpen = $state(false);
   let networkImportOpen = $state(false);
   let duplicatesOpen = $state(false);
+  let reconcileOpen = $state(false);
   let editDialogOpen = $state(false);
   let editMediaTarget = $state<Media | null>(null);
   let batchRating = $state(0);
@@ -1561,6 +1563,14 @@
       </svg>
       <span>查重</span>
     </button>
+    <button class="import-btn" onclick={() => { reconcileOpen = true; }} title="文件被移动后重新扫描产生的缺失记录，可按同名同大小找回并合并">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+        <path d="M3 4v4h4"/>
+        <path d="M12 8v4l2.5 2.5"/>
+      </svg>
+      <span>找回缺失</span>
+    </button>
   </div>
   <div class="view-switch">
     <button class="vs-btn" class:active={view === 'list'} title="列表视图" onclick={() => (view = 'list')}>
@@ -2194,6 +2204,7 @@
 
 <!-- 重复文件检测向导 -->
 <DuplicatesDialog bind:open={duplicatesOpen} />
+<ReconcileDialog bind:open={reconcileOpen} />
 
 <!-- 编辑媒体对话框 -->
 <EditMediaDialog bind:open={editDialogOpen} media={editMediaTarget} onsuccess={loadMedia} />
