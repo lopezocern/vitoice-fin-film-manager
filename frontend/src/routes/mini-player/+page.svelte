@@ -68,11 +68,14 @@
       .get<any>(`/media/${mediaId}`)
       .then((raw) => {
         const pos = raw?.playback_position ?? 0;
-        if (resumed && pos > 1 && pos < (videoEl?.duration ?? Infinity) - 5) {
+        if (!resumed && pos > 1 && pos < (videoEl?.duration ?? Infinity) - 5) {
           if (videoEl) videoEl.currentTime = pos;
         }
+        resumed = true;
       })
-      .catch(() => {});
+      .catch(() => {
+        resumed = true;
+      });
     void videoEl.play().catch(() => {});
   }
 
@@ -84,9 +87,12 @@
 
   function togglePlay(): void {
     if (!videoEl) return;
-    if (videoEl.paused) void videoEl.play().catch(() => {});
-    else void saveProgress(true);
-    videoEl.paused ? void videoEl.play().catch(() => {}) : videoEl.pause();
+    if (videoEl.paused) {
+      void videoEl.play().catch(() => {});
+    } else {
+      videoEl.pause();
+      void saveProgress(true);
+    }
   }
 
   function seekTo(v: number): void {
@@ -100,7 +106,8 @@
     muted = volume === 0;
   }
 
-  async function backToMain(): Promise<void> {
+  // 关闭小窗（进度已落盘）；主窗口保持打开，用户回到主窗口继续
+  async function closeMini(): Promise<void> {
     await saveProgress(true);
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await getCurrentWindow().close();
@@ -120,6 +127,15 @@
   {#if loadError}
     <div class="mini-error">{loadError}</div>
   {:else}
+    <!-- 拖拽标题条：decorations:false 的窗口唯一可拖动区域，含标题 + 关闭 -->
+    <div class="mini-titlebar" data-tauri-drag-region>
+      <span class="tb-title" data-tauri-drag-region>{title || '迷你播放'}</span>
+      <button class="mini-btn" onclick={closeMini} aria-label="关闭小窗" title="关闭小窗">
+        <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M5 5l14 14M19 5L5 19" fill="none" />
+        </svg>
+      </button>
+    </div>
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_media_has_caption -->
     <video
       bind:this={videoEl}
@@ -175,11 +191,6 @@
         }}
         aria-label="音量"
       />
-      <button class="mini-btn" onclick={backToMain} aria-label="回到主窗口" title="回到主窗口">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 3H5a2 2 0 0 0-2 2v4M15 3h4a2 2 0 0 1 2 2v4M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/>
-        </svg>
-      </button>
     </div>
   {/if}
 </div>
@@ -193,6 +204,25 @@
     background: #000;
     overflow: hidden;
     user-select: none;
+  }
+  .mini-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 30px;
+    flex-shrink: 0;
+    padding-left: 10px;
+    background: rgba(16, 18, 20, 0.98);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .tb-title {
+    flex: 1;
+    min-width: 0;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .mini-video {
     flex: 1;

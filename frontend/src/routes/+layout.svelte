@@ -2,6 +2,7 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import AppShell from '$lib/components/layout/AppShell.svelte';
 
   let { children } = $props();
@@ -62,9 +63,15 @@
 
 <svelte:window oncontextmenu={onGlobalContextMenu} />
 
-<AppShell>
+{#if $page.url.pathname.startsWith('/mini-player')}
+  <!-- 迷你置顶小窗：独立播放器窗口，剥离 AppShell（TopNav/Sidebar/任务抽屉），
+       否则 480x270 小窗里塞进整套应用外壳，看起来像"小型软件窗口"。 -->
   {@render children()}
-</AppShell>
+{:else}
+  <AppShell>
+    {@render children()}
+  </AppShell>
+{/if}
 
 {#if helpToast}
   <div class="global-shortcut-toast" role="status">{helpToast}</div>

@@ -49,6 +49,15 @@
     else imageFallback(event, item.data);
   }
 
+  // 竖版卡片里的横版海报（宽>高）：cover 居中裁切会把封面主体截掉，
+  // AV/横版封面的视觉主体多在右侧——改为显示右半部分。
+  function onArtworkLoad(event: Event): void {
+    const img = event.currentTarget as HTMLImageElement;
+    if (img.naturalWidth > img.naturalHeight) {
+      img.style.objectPosition = 'right center';
+    }
+  }
+
   // 受限媒体库 ID 集合（与各媒体墙组件保持一致）
   const restrictedLibIds = $derived(
     new Set(librariesStore.libraries.filter((l) => l.is_restricted).map((l) => String(l.id)))
@@ -99,7 +108,13 @@
 {#snippet artwork(item: MediaHomeItem, eager = false)}
   {@const src = imageUrl(item)}
   {#if src}
-    <img src={src} alt={item.data.title} loading={eager ? 'eager' : 'lazy'} onerror={(event) => handleImageError(event, item)} />
+    <img
+      src={src}
+      alt={item.data.title}
+      loading={eager ? 'eager' : 'lazy'}
+      onload={onArtworkLoad}
+      onerror={(event) => handleImageError(event, item)}
+    />
   {:else}
     <div class="art-fallback" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.5">

@@ -63,7 +63,12 @@
 
   function buildUrlQuery(): URLSearchParams {
     const sp = new URLSearchParams();
-    if (pageMode === 'center') return sp;
+    if (pageMode === 'center') {
+      // 显式携带 mode=center：详情/播放器返回（history.back / from 参数）时
+      // URL 保留观看中心标记，避免回退后被当作媒体库视图。
+      sp.set('mode', 'center');
+      return sp;
+    }
     sp.set('mode', 'library');
     if (section !== 'all') sp.set('section', section);
     if (filter.type) sp.set('type', filter.type);
@@ -136,8 +141,12 @@
   });
   // 仅当 URL 明确请求 mode=center（点击 logo 跳 /media?mode=center）时才回到观看中心；
   // 其它不带 mode 参数的导航（详情返回、媒体库视图等）一律不干预，从而保留媒体库视图记忆。
-  $effect(() => {
-    const sp = $pageStore.url.searchParams;
+  // 用 afterNavigate 而非 $effect：$effect 追踪 $pageStore.url 会在 replaceState 往返中
+  // 读到过期 searchParams（点击侧边栏 → URL 同步为 mode=library → page store 异步发射
+  // 仍带 mode=center 的快照 → 把 pageMode 翻回 center，表现为"侧边栏点击没反应"）。
+  // afterNavigate 只在真实导航（goto/history）时触发，replaceState 不触发，无此竞态。
+  afterNavigate((nav) => {
+    const sp = (nav.to?.url ?? $pageStore.url).searchParams;
     if (sp.get('mode') === 'center' && pageMode !== 'center') pageMode = 'center';
   });
   let page = $state(1); // 无限滚动：当前已加载到的页数，由 loadMedia/loadMore 内部维护
@@ -809,9 +818,15 @@
 
   // 点击侧边栏（任意导航节点）时，自动从"观看中心"切到"媒体库"——
   // 否则停在观看中心时导航只更新了 store，页面内容不变化，表现为"点击没反应"。
-  let lastNavCount = 0;
+  // lastNavCount 初始化为 -1：挂载首跑只记录基线不触发切换——否则从详情/播放器
+  // 返回本页时（navigateCount 已 >0），会被误判为侧边栏点击而强制离开观看中心。
+  let lastNavCount = -1;
   $effect(() => {
     const count = navigation.navigateCount;
+    if (lastNavCount === -1) {
+      lastNavCount = count;
+      return;
+    }
     if (count > 0 && count !== lastNavCount && pageMode === 'center') {
       pageMode = 'library';
     }
@@ -1256,7 +1271,7 @@
         </a>
       </div>
     {:else if showSeriesInAll && unifiedItems.length > 0}
-      <UnifiedWall items={unifiedItems} onSelectSeries={onSelectSeries} onSelectMedia={onSelect} {density} />
+      <UnifiedWall items={unifiedItems} onSelectSeries={onSelectSeries} onSelectMedia={onSelect} mode={view} {density} />
     {:else if showSeriesInAll && unifiedItems.length === 0}
       <div class="state anim-fade-in">
         <div class="state-title">暂无媒体</div>

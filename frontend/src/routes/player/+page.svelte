@@ -860,13 +860,15 @@
       new WebviewWindow('mini', {
         url: `/mini-player?id=${media.id}`,
         title: 'vitoice 迷你播放',
-        width: 448,
-        height: 288,
+        // 16:9 视频比例的独立小窗（剥离 AppShell 后整窗即播放器）
+        width: 480,
+        height: 270,
         minWidth: 320,
-        minHeight: 220,
+        minHeight: 180,
         resizable: true,
         alwaysOnTop: true,
         decorations: false,
+        skipTaskbar: true,
       });
     } catch (e) {
       console.warn('openMiniWindow failed:', e);
