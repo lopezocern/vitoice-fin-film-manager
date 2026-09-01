@@ -4,7 +4,7 @@
   // 说明：播放状态以 <video> 元素为唯一真相源，绑定到本地 $state；
   //       全局项（音量/静音/字幕偏好）走 localStorage 持久化，per-media 速率/进度走后端。
   //       player store 文件按约定未修改，本页自包含不依赖其字段。
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { mediaApi, type RelatedMediaItem } from '$lib/api/media';
@@ -450,7 +450,9 @@
 
   $effect(() => {
     const id = mediaId;
-    if (id) loadMedia(id);
+    // untrack：loadMedia 在 await 前同步写 loading/loadError（$state），
+    // 防止被追踪进 effect 依赖面（项目 Svelte 5 响应式安全约定）
+    if (id) untrack(() => loadMedia(id));
     else {
       media = null;
       loading = false;
