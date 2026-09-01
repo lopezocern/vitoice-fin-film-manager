@@ -214,7 +214,7 @@ class Settings(BaseSettings):
     tmdb_language: str = "zh-CN"
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost"]
+    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost", "http://tauri.localhost"]
 
 
 settings = Settings()

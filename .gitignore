@@ -53,6 +53,11 @@ frontend/vite.config.ts.timestamp-*.mjs
 # Tauri generated schemas
 src-tauri/gen/
 
+# PyInstaller build artifacts (rebuild via: cd backend && python -m PyInstaller vitoice-backend.spec,
+# then copy dist/vitoice-backend -> src-tauri/resources/backend/ before `tauri build`)
+backend/build/
+src-tauri/resources/backend/
+
 # Local scripts containing private API keys (never commit)
 generate_image_makabaka.ps1
 *.local.ps1

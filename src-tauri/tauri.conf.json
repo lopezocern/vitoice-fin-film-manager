@@ -21,16 +21,19 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "decorations": false
+        "decorations": false,
+        "visible": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:8765; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:8765 ipc: http://ipc.localhost; script-src 'self'"
+      "csp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:41011; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:41011 ipc: http://ipc.localhost; script-src 'self'",
+      "devCsp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:8765; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:8765 ipc: http://ipc.localhost ws://127.0.0.1:5173; script-src 'self' 'unsafe-eval'"
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": ["resources/backend"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
