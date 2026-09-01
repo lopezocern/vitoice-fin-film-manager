@@ -1692,6 +1692,96 @@ async def generate_media_contact_sheet(media_id: int, db: AsyncSession = Depends
     }
 
 
+@router.get("/{media_id}/related")
+async def get_related_media(
+    media_id: int,
+    limit: int = Query(8, ge=1, le=24),
+    db: AsyncSession = Depends(get_db),
+):
+    """播放结束推荐：同系列下一集 > 同标签 > 同库，排除自身/回收站/受限库。
+
+    Returns ``{ items: [{id, title, year, duration, has_thumbnail, reason}] }``
+    where reason ∈ {series, tag, library}（按优先级顺序填充，截断到 limit）。
+    """
+    media = await _get_media_or_404(db, media_id)
+    restricted_ids = await get_restricted_library_ids(db)
+    picked: dict[int, dict] = {}
+
+    def _allowed(m: Media) -> bool:
+        if m.id == media_id or m.is_deleted:
+            return False
+        if restricted_ids and m.library_id in restricted_ids:
+            return False
+        return m.id not in picked
+
+    def _pick(rows: list[Media], reason: str) -> None:
+        for m in rows:
+            if len(picked) >= limit:
+                break
+            if not _allowed(m):
+                continue
+            thumb_ok = bool(m.thumbnail_path) or (
+                app_settings.thumbnail_dir / f"{m.id}.jpg"
+            ).is_file()
+            picked[m.id] = {
+                "id": m.id,
+                "title": m.title,
+                "year": m.year,
+                "duration": m.duration,
+                "has_thumbnail": thumb_ok,
+                "reason": reason,
+            }
+
+    # 1) 同系列（季/集排序，下一集自然靠前）
+    if media.series_id:
+        result = await db.execute(
+            select(Media)
+            .where(
+                Media.series_id == media.series_id,
+                Media.id != media_id,
+                Media.is_deleted == False,  # noqa: E712
+            )
+            .order_by(Media.season_number, Media.episode_number)
+        )
+        _pick(list(result.scalars().all()), "series")
+
+    # 2) 同标签（OR 语义，按共同标签数降序）
+    if len(picked) < limit:
+        tag_ids = (
+            await db.execute(select(VideoTag.tag_id).where(VideoTag.media_id == media_id))
+        ).scalars().all()
+        if tag_ids:
+            result = await db.execute(
+                select(Media)
+                .join(VideoTag, VideoTag.media_id == Media.id)
+                .where(
+                    VideoTag.tag_id.in_(tag_ids),
+                    Media.id != media_id,
+                    Media.is_deleted == False,  # noqa: E712
+                )
+                .group_by(Media.id)
+                .order_by(func.count(VideoTag.tag_id).desc())
+                .limit(limit * 2)
+            )
+            _pick(list(result.scalars().all()), "tag")
+
+    # 3) 同库兜底（最近添加优先）
+    if len(picked) < limit:
+        result = await db.execute(
+            select(Media)
+            .where(
+                Media.library_id == media.library_id,
+                Media.id != media_id,
+                Media.is_deleted == False,  # noqa: E712
+            )
+            .order_by(Media.created_at.desc())
+            .limit(limit)
+        )
+        _pick(list(result.scalars().all()), "library")
+
+    return {"items": list(picked.values())[:limit]}
+
+
 @router.get("/{media_id}/poster")
 async def get_poster(media_id: int, db: AsyncSession = Depends(get_db)):
     """Get the media's scraped poster image (falls back to 404 if not scraped)."""

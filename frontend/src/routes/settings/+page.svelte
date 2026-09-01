@@ -324,6 +324,22 @@
       ],
       description: '步长按时间或帧数计算'
     },
+    {
+      key: 'player_autoplay',
+      category: 'player',
+      label: '自动连播',
+      type: 'toggle',
+      default: 'false',
+      description: '播放结束后 5 秒倒计时自动播放同系列下一集'
+    },
+    {
+      key: 'player_rec_grid',
+      category: 'player',
+      label: '结束推荐网格',
+      type: 'toggle',
+      default: 'true',
+      description: '播放结束后（或未连播时）展示同系列/同标签/同库的推荐网格'
+    },
     // 字幕
     {
       key: 'subtitle_font_size',

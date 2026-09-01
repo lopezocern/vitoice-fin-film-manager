@@ -154,6 +154,16 @@ class SettingsStore {
   get allowAdultNetwork(): boolean {
     return (this._values['network_allow_adult'] || 'false').toLowerCase() === 'true';
   }
+
+  // Player end-of-playback behavior
+  /** 播放结束后自动连播下一集（仅同系列存在下一集时生效）。 */
+  get playerAutoplay(): boolean {
+    return (this._values['player_autoplay'] || 'false').toLowerCase() === 'true';
+  }
+  /** 播放结束显示推荐网格（无连播或连播关闭时展示）。 */
+  get playerRecGrid(): boolean {
+    return (this._values['player_rec_grid'] || 'true').toLowerCase() === 'true';
+  }
 }
 
 export const settingsStore = new SettingsStore();

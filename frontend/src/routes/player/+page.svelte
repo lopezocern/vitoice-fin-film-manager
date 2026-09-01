@@ -7,7 +7,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import { mediaApi } from '$lib/api/media';
+  import { mediaApi, type RelatedMediaItem } from '$lib/api/media';
+  import { seriesApi } from '$lib/api/series';
   import { client, BASE_URL } from '$lib/api/client';
   import { formatTime } from '$lib/utils/format';
   import { toggleWorkAreaMaximize, isWorkAreaMaximized, sizeLooksMaximized } from '$lib/utils/tauri-window';
@@ -662,6 +663,85 @@
   function onEnded(): void {
     void saveProgress();
     showControls();
+    void handlePlaybackEnded();
+  }
+
+  // —— 播放结束：连播 / 推荐网格（T1） ——
+  let endOverlayOpen = $state(false);
+  let endNextId = $state<number | null>(null);
+  let endCountdown = $state(0);
+  let endRecItems = $state<RelatedMediaItem[]>([]);
+  let endTimer: ReturnType<typeof setInterval> | null = null;
+  let endNavBusy = $state(false);
+
+  async function handlePlaybackEnded(): Promise<void> {
+    if (!media || endNavBusy) return;
+    endNavBusy = true;
+    try {
+      // 下一集（同系列）
+      let nextId: number | null = null;
+      try {
+        const nav = await seriesApi.getEpisodeNav(String(media.id));
+        if (nav.has_next && nav.next_id) nextId = nav.next_id;
+      } catch {
+        /* 非系列媒体 → 无下一集 */
+      }
+      // 推荐列表（同系列下一集 > 同标签 > 同库）
+      try {
+        endRecItems = await mediaApi.related(String(media.id), 8);
+      } catch {
+        endRecItems = [];
+      }
+
+      if (settingsStore.playerAutoplay && nextId != null) {
+        // 连播：5s 倒计时覆盖层
+        endNextId = nextId;
+        endCountdown = 5;
+        endOverlayOpen = true;
+        cancelEndTimer();
+        endTimer = setInterval(() => {
+          endCountdown -= 1;
+          if (endCountdown <= 0) void playNextNow();
+        }, 1000);
+      } else if (settingsStore.playerRecGrid && endRecItems.length > 0) {
+        // 无连播 → 推荐网格
+        endOverlayOpen = true;
+      }
+    } finally {
+      endNavBusy = false;
+    }
+  }
+
+  function cancelEndTimer(): void {
+    if (endTimer) {
+      clearInterval(endTimer);
+      endTimer = null;
+    }
+  }
+
+  async function playNextNow(): Promise<void> {
+    cancelEndTimer();
+    const id = endNextId;
+    endOverlayOpen = false;
+    if (id != null) {
+      // 保留 from 等现有参数，仅替换 id —— $effect(mediaId) 会自动重载
+      const url = new URL($page.url);
+      url.searchParams.set('id', String(id));
+      await goto(url.pathname + url.search);
+    }
+  }
+
+  function playRecItem(item: RelatedMediaItem): void {
+    cancelEndTimer();
+    endOverlayOpen = false;
+    const url = new URL($page.url);
+    url.searchParams.set('id', String(item.id));
+    void goto(url.pathname + url.search);
+  }
+
+  function dismissEndOverlay(): void {
+    cancelEndTimer();
+    endOverlayOpen = false;
   }
 
   // —— 视频错误处理：抑制 seek 期间的 ERR_ABORTED ——
@@ -1525,6 +1605,7 @@
     if (hideTimer) clearTimeout(hideTimer);
     if (organizeTimer) clearTimeout(organizeTimer);
     if (clickTimer) clearTimeout(clickTimer);
+    cancelEndTimer();
     if (pressTimer) clearTimeout(pressTimer);
     if (toastTimer) clearTimeout(toastTimer);
   });
@@ -1985,6 +2066,48 @@
       {/if}
     </div>
 
+    <!-- 播放结束：连播倒计时 / 推荐网格覆盖层 -->
+    {#if endOverlayOpen}
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+      <div class="end-overlay" onclick={dismissEndOverlay}>
+        <div class="end-panel" tabindex="-1" onclick={(e) => e.stopPropagation()} role="dialog" aria-label="播放结束">
+          {#if endNextId != null && endCountdown > 0}
+            <!-- 连播倒计时 -->
+            <p class="end-label">本集播放结束</p>
+            <h3 class="end-title">即将连播下一集</h3>
+            <div class="end-countdown">{endCountdown}</div>
+            <div class="end-actions">
+              <button class="end-btn primary" onclick={() => void playNextNow()}>立即播放</button>
+              <button class="end-btn" onclick={dismissEndOverlay}>取消</button>
+            </div>
+          {:else}
+            <!-- 推荐网格 -->
+            <p class="end-label">播放结束</p>
+            <h3 class="end-title">接下来看</h3>
+            <div class="rec-grid">
+              {#each endRecItems as item (item.id)}
+                <button class="rec-card" onclick={() => playRecItem(item)}>
+                  <div class="rec-thumb">
+                    {#if item.has_thumbnail}
+                      <img src={mediaApi.thumbnailUrl(String(item.id))} alt={item.title} loading="lazy" />
+                    {:else}
+                      <span class="rec-thumb-empty">▶</span>
+                    {/if}
+                    {#if item.reason === 'series'}<span class="rec-badge">同系列</span>
+                    {:else if item.reason === 'tag'}<span class="rec-badge">同标签</span>{/if}
+                  </div>
+                  <span class="rec-title">{item.title}</span>
+                </button>
+              {/each}
+            </div>
+            <div class="end-actions">
+              <button class="end-btn" onclick={dismissEndOverlay}>关闭</button>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     <!-- Toast -->
     {#if toastMsg}<div class="toast">{toastMsg}</div>{/if}
 
@@ -2264,6 +2387,147 @@
     font-size: 16px;
     font-weight: 500;
     letter-spacing: 0.05em;
+  }
+
+  /* —— 播放结束覆盖层（连播 / 推荐网格）—— */
+  .end-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.78);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 22;
+    animation: end-fade 220ms ease;
+  }
+  @keyframes end-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .end-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    max-width: 860px;
+    max-height: 86%;
+    padding: 28px 32px;
+    overflow: auto;
+  }
+  .end-label {
+    margin: 0;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 0.08em;
+  }
+  .end-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .end-countdown {
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 38px;
+    font-weight: 700;
+    color: var(--accent, #e5a95c);
+  }
+  .end-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .end-btn {
+    padding: 9px 26px;
+    border-radius: var(--radius-full, 999px);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 140ms, border-color 140ms;
+  }
+  .end-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .end-btn.primary {
+    background: var(--accent, #e5a95c);
+    border-color: transparent;
+    color: #1a1206;
+    font-weight: 600;
+  }
+  .end-btn.primary:hover {
+    filter: brightness(1.08);
+  }
+  .rec-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    width: 100%;
+  }
+  .rec-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+  }
+  .rec-thumb {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .rec-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 160ms ease;
+  }
+  .rec-card:hover .rec-thumb img {
+    transform: scale(1.05);
+  }
+  .rec-thumb-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 26px;
+  }
+  .rec-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.65);
+    color: var(--accent, #e5a95c);
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .rec-title {
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.82);
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 
   /* 缓冲 spinner */

@@ -233,6 +233,16 @@ export interface AITagSuggestion {
   confidence: number;
 }
 
+/** 播放结束推荐项（GET /media/{id}/related）。 */
+export interface RelatedMediaItem {
+  id: number;
+  title: string;
+  year: number | null;
+  duration: number | null;
+  has_thumbnail: boolean;
+  reason: 'series' | 'tag' | 'library';
+}
+
 /** Map a backend Media object to the frontend-shaped Media object. */
 export function normalizeMedia(raw: any): Media {
   const mime: string = raw?.mime_type ?? '';
@@ -450,6 +460,17 @@ export const mediaApi = {
   /** 生成（或重新生成）4×4 缩略图集（16 帧 1920×1080，手动触发）。 */
   generateContactSheet: async (id: string): Promise<{ success: boolean; url: string }> =>
     client.post<{ success: boolean; url: string }>(`/media/${id}/contact-sheet`, {}),
+
+  /** 播放结束推荐：同系列下一集 > 同标签 > 同库。 */
+  related: async (id: string, limit = 8): Promise<RelatedMediaItem[]> => {
+    const raw = await client.get<{ items: RelatedMediaItem[] }>(
+      `/media/${id}/related`,
+      { limit },
+      undefined,
+      true
+    );
+    return raw?.items ?? [];
+  },
 
   /**
    * Contact sheet URL (4×4, 1920×1080). Pass a version (e.g. Date.now())
