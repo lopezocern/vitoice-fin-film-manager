@@ -1,6 +1,8 @@
 """Application configuration loaded from environment / settings table."""
+import json
 import logging
 import os
+import shutil
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,25 +18,106 @@ logger = logging.getLogger("vitoice")
 # Environment isolation: dev vs prod
 #
 #   VITOICE_ENV=dev  → project-local backend/data/   (development & testing)
-#   default (prod)   → ~/.vitoice/                   (packaged installer)
+#   default (prod)   → data root (see below)         (packaged installer)
 #
 # This prevents dev sessions from clobbering the production database when
 # the app is eventually packaged as an installer. dev.ps1 sets
 # VITOICE_ENV=dev; the packaged exe leaves it unset.
 # ---------------------------------------------------------------------------
+#
+# Data root resolution (prod only) — priority:
+#   1. VITOICE_DATA_ROOT env var
+#   2. pointer file  ~/.vitoice/data-root.json   ({"data_root": "D:\\..."})
+#      — written by POST /api/settings/data-root, survives reinstalls
+#   3. default       ~/.vitoice/
+#
+# Directory layout under the data root (layered, Pixcall-style):
+#   vitoice.db          metadata (single source of truth)
+#   cache/thumbnails    regenerable thumbnails (safe to delete)
+#   cache/screenshots   regenerable screenshots
+#   assets/posters      scraped posters (recoverable by re-scraping)
+#   assets/backdrops    scraped backdrops
+#   backups/            automatic daily db backups (rotated)
+# ---------------------------------------------------------------------------
 _BACKEND_DIR = Path(__file__).resolve().parent.parent  # backend/
+_DEFAULT_ROOT = Path.home() / ".vitoice"
+_POINTER_FILE = _DEFAULT_ROOT / "data-root.json"
+
+# Flat (legacy) dir name → layered destination, relative to the data root.
+_LAYERED_DIRS: dict[str, str] = {
+    "thumbnails": "cache/thumbnails",
+    "screenshots": "cache/screenshots",
+    "posters": "assets/posters",
+    "backdrops": "assets/backdrops",
+}
+
+
+def _migrate_legacy_layout(root: Path) -> None:
+    """One-time migration: flat asset dirs → layered cache/ + assets/.
+
+    Runs at import time, before the engine opens the DB, so paths are
+    consistent for the whole process. Never raises — worst case a dir
+    stays where it is and the app keeps working off the new path empty.
+    """
+    for legacy_name, rel_dest in _LAYERED_DIRS.items():
+        legacy = root / legacy_name
+        if not legacy.is_dir():
+            continue
+        dest = root / rel_dest
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                # Merge: move children that don't collide, then drop legacy dir
+                for child in legacy.iterdir():
+                    dst = dest / child.name
+                    if not dst.exists():
+                        shutil.move(str(child), str(dst))
+                try:
+                    legacy.rmdir()
+                except OSError:
+                    pass
+            else:
+                shutil.move(str(legacy), str(dest))
+            logger.info("Migrated legacy dir %s -> %s", legacy, dest)
+        except OSError as exc:
+            logger.warning("Failed to migrate %s -> %s: %s", legacy, dest, exc)
+
+
+def _resolve_data_root() -> tuple[Path, str]:
+    """Resolve the data root. Returns (path, source) — env|pointer|default."""
+    env = os.getenv("VITOICE_DATA_ROOT")
+    if env:
+        return Path(env).expanduser(), "env"
+    try:
+        if _POINTER_FILE.is_file():
+            data = json.loads(_POINTER_FILE.read_text(encoding="utf-8"))
+            raw = str(data.get("data_root") or "").strip()
+            if raw:
+                return Path(raw).expanduser(), "pointer"
+    except (OSError, ValueError) as exc:
+        logger.warning("Ignoring unreadable data-root pointer %s: %s", _POINTER_FILE, exc)
+    return _DEFAULT_ROOT, "default"
+
 
 if os.getenv("VITOICE_ENV", "prod").lower() == "dev":
     _DATA_ROOT = _BACKEND_DIR / "data"
     _DB_PATH = _DATA_ROOT / "vitoice_dev.db"
     _IS_DEV = True
+    _DATA_ROOT_SOURCE = "dev"
 else:
-    _DATA_ROOT = Path.home() / ".vitoice"
+    _DATA_ROOT, _DATA_ROOT_SOURCE = _resolve_data_root()
     _DB_PATH = _DATA_ROOT / "vitoice.db"
     _IS_DEV = False
 
-logger.info("App env: %s | data root: %s | db: %s",
-            "dev" if _IS_DEV else "prod", _DATA_ROOT, _DB_PATH)
+# Layered layout migration (both dev and prod — dev db path is untouched,
+# only regenerable asset dirs move into cache/ + assets/)
+try:
+    _migrate_legacy_layout(_DATA_ROOT)
+except Exception as exc:  # noqa: BLE001 — migration must never block startup
+    logger.warning("Legacy layout migration skipped: %s", exc)
+
+logger.info("App env: %s | data root: %s (%s) | db: %s",
+            "dev" if _IS_DEV else "prod", _DATA_ROOT, _DATA_ROOT_SOURCE, _DB_PATH)
 
 
 class Settings(BaseSettings):
@@ -48,11 +131,13 @@ class Settings(BaseSettings):
     # Database — isolated per environment (see _DATA_ROOT / _DB_PATH above)
     database_url: str = f"sqlite+aiosqlite:///{_DB_PATH}"
 
-    # Paths — thumbnails / screenshots / posters live under the data root
-    thumbnail_dir: Path = _DATA_ROOT / "thumbnails"
-    screenshot_dir: Path = _DATA_ROOT / "screenshots"
-    poster_dir: Path = _DATA_ROOT / "posters"
-    backdrop_dir: Path = _DATA_ROOT / "backdrops"
+    # Paths — layered under the data root (see module docstring):
+    #   cache/  = regenerable, safe to wipe;  assets/ = scraped, re-scrapable
+    thumbnail_dir: Path = _DATA_ROOT / "cache" / "thumbnails"
+    screenshot_dir: Path = _DATA_ROOT / "cache" / "screenshots"
+    poster_dir: Path = _DATA_ROOT / "assets" / "posters"
+    backdrop_dir: Path = _DATA_ROOT / "assets" / "backdrops"
+    backup_dir: Path = _DATA_ROOT / "backups"
 
     # External tools
     ffmpeg_path: str = "ffmpeg"
@@ -96,6 +181,7 @@ try:
     settings.screenshot_dir.mkdir(parents=True, exist_ok=True)
     settings.poster_dir.mkdir(parents=True, exist_ok=True)
     settings.backdrop_dir.mkdir(parents=True, exist_ok=True)
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
 except OSError:
     import logging
     _log = logging.getLogger("vitoice.config")

@@ -606,6 +606,111 @@
       assetCleaning = false;
     }
   }
+  // ---- 数据存储位置（自定义数据根） ----
+  interface DataRootInfo {
+    current: string;
+    default: string;
+    source: 'dev' | 'env' | 'pointer' | 'default';
+    env_override: boolean;
+    pointer_file: string;
+    db_path: string;
+    is_dev: boolean;
+  }
+  interface DataRootChangeResult {
+    ok: boolean;
+    message: string;
+    restart_required?: boolean;
+    old_root?: string;
+    new_root?: string;
+    moved_dirs?: string[];
+    note?: string;
+  }
+  let dataRootInfo = $state<DataRootInfo | null>(null);
+  let dataRootError = $state(false);
+  let newDataRoot = $state('');
+  let dataRootMigrating = $state(false);
+  let dataRootResult = $state<DataRootChangeResult | null>(null);
+
+  async function loadDataRoot(): Promise<void> {
+    dataRootError = false;
+    try {
+      const info = await client.get<DataRootInfo>('/settings/data-root', undefined, undefined, true);
+      dataRootInfo = info;
+      // 数据库路径只读项显示后端真实路径（替代硬编码默认值）
+      values = { ...values, db_path: info.db_path };
+      newDataRoot = info.current;
+    } catch {
+      dataRootError = true;
+    }
+  }
+
+  async function changeDataRoot(): Promise<void> {
+    if (dataRootMigrating) return;
+    const target = newDataRoot.trim();
+    if (!target) {
+      showToast('请填写新的数据目录');
+      return;
+    }
+    if (!window.confirm(
+      '将把数据库与缩略图/海报等资产迁移到新位置：\n\n' + target +
+      '\n\n迁移过程中请勿关闭应用。迁移完成后需要重启应用生效。继续吗？'
+    )) return;
+    dataRootMigrating = true;
+    dataRootResult = null;
+    try {
+      const res = await client.post<DataRootChangeResult>('/settings/data-root', { path: target });
+      dataRootResult = res;
+      showToast(res.message || '迁移完成');
+      await loadDataRoot();
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : '迁移失败';
+      showToast(msg);
+    } finally {
+      dataRootMigrating = false;
+    }
+  }
+
+  function dataRootSourceLabel(source: DataRootInfo['source']): string {
+    switch (source) {
+      case 'dev': return '开发环境';
+      case 'env': return '环境变量';
+      case 'pointer': return '自定义';
+      default: return '默认';
+    }
+  }
+
+  // ---- 数据库备份 ----
+  interface BackupItem { name: string; path: string; size: number; mtime: number }
+  let backups = $state<BackupItem[]>([]);
+  let backupsLoading = $state(false);
+  let backingUp = $state(false);
+
+  async function loadBackups(): Promise<void> {
+    backupsLoading = true;
+    try {
+      const res = await client.get<{ backups: BackupItem[] }>('/settings/backups', undefined, undefined, true);
+      backups = res?.backups ?? [];
+    } catch {
+      backups = [];
+    } finally {
+      backupsLoading = false;
+    }
+  }
+
+  async function createBackup(): Promise<void> {
+    if (backingUp) return;
+    backingUp = true;
+    try {
+      const res = await client.post<{ ok: boolean; path: string }>('/settings/backup', {});
+      showToast(`备份完成：${res.path.split(/[\\/]/).pop() ?? ''}`);
+      await loadBackups();
+    } catch {
+      showToast('备份失败');
+    } finally {
+      backingUp = false;
+    }
+  }
+
   // ---- AI 连接测试 ----
   // 检测值是否为后端返回的掩码值（****xxxx），掩码值不能作为真实 key 发送
   function isMaskedValue(v: string | undefined): boolean {
@@ -713,8 +818,8 @@
 
   // ---- 打开数据目录 ----
   async function openDataDir(): Promise<void> {
-    const p = values['db_path'] ?? '';
-    const dir = p.includes('/') || p.includes('\\') ? p.replace(/[/\\][^/\\]*$/, '') : '';
+    // 优先用后端数据根的真实路径（db_path 只读项可能还是旧默认值）
+    const dir = dataRootInfo?.current ?? '';
     // 安全校验：dir 必须是本地路径（盘符开头或 Unix 绝对路径），且不能包含 URL scheme
     const isLocalPath =
       !!dir &&
@@ -770,7 +875,11 @@
     }
   });
 
-  onMount(loadSettings);
+  onMount(() => {
+    void loadSettings();
+    void loadDataRoot();
+    void loadBackups();
+  });
 
   onDestroy(() => {
     if (saveTimer) {
@@ -1212,6 +1321,87 @@
           </div>
         {/if}
         {#if activeCategory === 'database'}
+          <!-- 数据库分区：数据存储位置 -->
+          <div class="section-block">
+            <h3 class="section-title">数据存储位置</h3>
+            <p class="section-desc">
+              数据库与缩略图/海报等资产的根目录。默认在用户目录 .vitoice 下，可迁移到其他磁盘。
+            </p>
+            {#if dataRootInfo}
+              <div class="dataroot-current">
+                <span class="dataroot-label" class:custom={dataRootInfo.source === 'pointer'}>
+                  {dataRootSourceLabel(dataRootInfo.source)}
+                </span>
+                <code class="dataroot-path">{dataRootInfo.current}</code>
+              </div>
+              {#if dataRootInfo.is_dev}
+                <p class="dataroot-note">开发环境固定使用 backend/data，不支持迁移。</p>
+              {:else if dataRootInfo.env_override}
+                <p class="dataroot-note">已设置 VITOICE_DATA_ROOT 环境变量，应用内更改不生效。</p>
+              {:else}
+                <div class="dataroot-form">
+                  <input
+                    class="dataroot-input"
+                    type="text"
+                    bind:value={newDataRoot}
+                    placeholder="例如 D:\\vitoice-data"
+                    disabled={dataRootMigrating}
+                  />
+                  <button
+                    class="primary-btn"
+                    onclick={changeDataRoot}
+                    disabled={dataRootMigrating || newDataRoot.trim() === dataRootInfo.current}
+                  >
+                    {dataRootMigrating ? '迁移中…' : '迁移数据'}
+                  </button>
+                </div>
+                {#if dataRootResult?.ok}
+                  <div class="dataroot-result">
+                    <strong>✓ {dataRootResult.message}</strong>
+                    <p>新位置：{dataRootResult.new_root}</p>
+                    <p>已移动：{dataRootResult.moved_dirs?.length ? dataRootResult.moved_dirs.join('、') : '无资产目录'}</p>
+                    <p>{dataRootResult.note}</p>
+                    <p class="dataroot-restart">请关闭应用后重新启动以使用新位置。</p>
+                  </div>
+                {/if}
+              {/if}
+            {:else if dataRootError}
+              <p class="dataroot-note">无法读取数据位置信息（后端未连接？）。</p>
+            {:else}
+              <p class="dataroot-note">加载中…</p>
+            {/if}
+          </div>
+
+          <!-- 数据库分区：自动备份 -->
+          <div class="section-block">
+            <h3 class="section-title">数据库备份</h3>
+            <p class="section-desc">
+              每日自动备份一次数据库（保留最近 7 份），存放于数据目录的 backups 文件夹。
+            </p>
+            <div class="section-action">
+              <button
+                class="action-btn"
+                onclick={createBackup}
+                disabled={backingUp}
+              >
+                {backingUp ? '备份中…' : '立即备份'}
+              </button>
+              {#if backups.length > 0}
+                <span class="asset-summary">{backups.length} 份备份</span>
+              {/if}
+            </div>
+            {#if backups.length > 0}
+              <ul class="backup-list">
+                {#each backups.slice(0, 7) as b (b.name)}
+                  <li class="backup-item">
+                    <code>{b.name}</code>
+                    <span>{formatBytes(b.size)}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
+
           <!-- 数据库分区：孤立缩略图/封面清理 -->
           <div class="section-block">
             <h3 class="section-title">存储清理</h3>
@@ -1672,6 +1862,112 @@
   .section-action-btn {
     height: 36px;
     padding: 0 20px;
+  }
+
+  /* ============ 数据库分区：数据存储位置 / 备份 ============ */
+  .dataroot-current {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    min-width: 0;
+  }
+
+  .dataroot-label {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: var(--rule-light);
+    color: var(--ink-secondary);
+  }
+
+  .dataroot-label.custom {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+  }
+
+  .dataroot-path {
+    font-size: 12px;
+    color: var(--ink-secondary);
+    word-break: break-all;
+  }
+
+  .dataroot-note {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: var(--ink-tertiary, var(--ink-secondary));
+  }
+
+  .dataroot-form {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .dataroot-input {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--rule-light);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    color: var(--ink);
+    font-size: 13px;
+    font-family: var(--font-body);
+  }
+
+  .dataroot-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .dataroot-result {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--ok) 8%, transparent);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--ink-secondary);
+  }
+
+  .dataroot-result strong {
+    color: var(--ok);
+  }
+
+  .dataroot-result p {
+    margin: 2px 0 0;
+  }
+
+  .dataroot-restart {
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .backup-list {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .backup-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--ink-secondary);
+  }
+
+  .backup-item code {
+    font-family: var(--font-mono, monospace);
+    word-break: break-all;
   }
 
   /* ============ 数据库分区：存储清理 ============ */

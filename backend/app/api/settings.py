@@ -385,6 +385,66 @@ async def asset_stats():
     return await asyncio.to_thread(_scan_orphan_assets)
 
 
+# =====================================================================
+# Data location (custom data root)
+#
+# GET  /settings/data-root  — current resolution facts
+# POST /settings/data-root  — migrate data to a new root (restart required)
+# =====================================================================
+
+class DataRootPayload(BaseModel):
+    path: str
+
+
+@router.get("/data-root")
+async def get_data_root():
+    """Where the data root lives and how it was resolved (env/pointer/default)."""
+    from app.services.data_location import get_data_location_info
+
+    return get_data_location_info()
+
+
+@router.get("/backups")
+async def get_backups():
+    """Inventory of automatic database backups (newest first)."""
+    from app.services.backup import list_backups
+
+    return {"backups": list_backups()}
+
+
+@router.post("/backup")
+async def create_backup():
+    """Create a database backup snapshot right now."""
+    import asyncio
+
+    from app.services.backup import run_backup_now
+
+    result = await asyncio.to_thread(run_backup_now, "manual")
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("message", "备份失败"))
+    return result
+
+
+@router.post("/data-root")
+async def post_data_root(payload: DataRootPayload):
+    """Migrate the whole dataset (db + assets) to a new data root.
+
+    Takes effect after app restart; the old root keeps a safety copy of
+    vitoice.db until the user removes it manually.
+    """
+    import asyncio
+
+    from app.services.data_location import change_data_root
+
+    path = (payload.path or "").strip()
+    if not path:
+        raise HTTPException(status_code=422, detail="路径不能为空")
+    result = await asyncio.to_thread(change_data_root, path)
+    if not result.get("ok"):
+        raise HTTPException(status_code=422, detail=result.get("message", "迁移失败"))
+    return result
+
+
 @router.get("/{key}", response_model=SettingResponse)
 async def get_setting(key: str, db: AsyncSession = Depends(get_db)):
     """Get a single setting by key. Sensitive values are masked."""

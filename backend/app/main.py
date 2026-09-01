@@ -29,9 +29,27 @@ async def lifespan(app: FastAPI):
     from app.services.file_watcher import file_watcher
     await file_watcher.start()
 
+    # Daily database backup — one snapshot per calendar day, checked lazily
+    # every 6 hours (long-running sessions still get their daily backup).
+    import asyncio
+
+    from app.services.backup import has_backup_today, run_backup_now
+
+    async def _backup_loop() -> None:
+        while True:
+            try:
+                if not has_backup_today():
+                    await asyncio.to_thread(run_backup_now, "scheduled")
+            except Exception:  # noqa: BLE001 — backup must never kill the app
+                pass
+            await asyncio.sleep(6 * 3600)
+
+    backup_task = asyncio.create_task(_backup_loop())
+
     yield
 
     # Shutdown
+    backup_task.cancel()
     await file_watcher.stop()
     await task_manager.stop()
 
