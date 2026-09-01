@@ -270,6 +270,12 @@
     object-fit: contain;
   }
 
+  /* ---- 海报模式：横图（视频截图/横版海报）右侧裁切展示——主体通常在
+     画面右侧（与观看中心一致）；竖图/方图无横向裁切空间，不受影响 ---- */
+  .unified-view.poster-mode .card-thumb img {
+    object-position: right center;
+  }
+
   .content-mask {
     position: absolute;
     inset: 0;

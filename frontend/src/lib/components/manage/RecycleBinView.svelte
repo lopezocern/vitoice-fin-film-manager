@@ -4,6 +4,7 @@
   import { client } from '$lib/api/client';
   import { formatSize, formatDate } from '$lib/utils/format';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+  import { librariesStore } from '$lib/stores/libraries.svelte';
 
   interface RecycleItem {
     id: number;
@@ -65,9 +66,12 @@
     const myId = ++listReqId;
     loading = true;
     try {
+      // noCache — 恢复/删除/清空后立即重查，不能吃 client 层 30s GET 缓存
+      //（否则列表展示旧数据，看起来"操作后页面没刷新"）
       let currentPage = page;
       let resp = await client.get<{ items: RecycleItem[]; total: number }>(
-        `/recycle-bin?page=${currentPage}&page_size=${pageSize}`
+        `/recycle-bin?page=${currentPage}&page_size=${pageSize}`,
+        undefined, undefined, true
       );
       if (myId !== listReqId) return;
       let list = resp.items;
@@ -79,7 +83,8 @@
         currentPage = totalPages;
         page = totalPages;
         resp = await client.get<{ items: RecycleItem[]; total: number }>(
-          `/recycle-bin?page=${currentPage}&page_size=${pageSize}`
+          `/recycle-bin?page=${currentPage}&page_size=${pageSize}`,
+          undefined, undefined, true
         );
         if (myId !== listReqId) return;
         list = resp.items;
@@ -111,6 +116,7 @@
         : '';
       await client.post(`/recycle-bin/${restoreTarget.id}/restore${params}`);
       showToast(`已恢复「${restoreTarget.title}」`);
+      librariesStore.notifyChanged(); // 媒体页/管理页联动刷新
       await loadItems();
     } catch (e) {
       const msg = e instanceof Error ? e.message : '恢复失败';
@@ -136,6 +142,7 @@
       showToast(
         `已彻底删除「${permanentTarget.title}」（含本地文件与系统记录）`
       );
+      librariesStore.notifyChanged();
       await loadItems();
     } catch {
       showToast('彻底删除失败', 'err');
@@ -151,6 +158,7 @@
     try {
       await client.post(`/recycle-bin/${permanentTarget.id}/purge-local`, {});
       showToast(`已删除本地文件，「${permanentTarget.title}」已恢复到媒体页（标记为文件丢失，可经网络源播放）`);
+      librariesStore.notifyChanged();
       await loadItems();
     } catch {
       showToast('删除本地文件失败', 'err');
@@ -173,6 +181,7 @@
         '/recycle-bin/empty?delete_files=true'
       );
       showToast(`已清空回收站，共删除 ${resp.deleted_count} 项（含本地文件）`);
+      librariesStore.notifyChanged();
       page = 1;
       await loadItems();
     } catch {

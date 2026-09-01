@@ -128,6 +128,7 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: right center; /* 横版封面右侧裁切（主体多在右侧）；竖版海报不受影响 */
     display: block;
   }
 

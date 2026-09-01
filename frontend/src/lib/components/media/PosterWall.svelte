@@ -246,6 +246,14 @@
     object-fit: contain;
   }
 
+  /* 海报墙模式：统一 2/3 竖卡，横图（视频截图 / AV 横版海报）一律
+     cover + 右侧裁切——主体通常在画面右侧（与观看中心一致），
+     竖图/方图不受影响（无横向裁切空间）。 */
+  .poster-wall.poster-mode .poster-thumb img {
+    object-fit: cover;
+    object-position: right center;
+  }
+
   .thumb-fallback {
     width: 100%;
     height: 100%;
