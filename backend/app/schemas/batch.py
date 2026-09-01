@@ -8,7 +8,7 @@ class BatchActionRequest(BaseModel):
     """Request body for POST /api/media/batch."""
     action: Literal[
         "tag", "untag", "rating", "delete", "move", "rename",
-        "metadata_ignore", "scrape", "thumbnail", "export"
+        "metadata_ignore", "scrape", "thumbnail", "contact_sheet", "export"
     ]
     media_ids: list[int] = Field(..., min_length=1, max_length=1000)
     params: dict[str, Any] = {}

@@ -48,7 +48,7 @@ async def batch_action(
     Partial failures do not roll back successful items; the response includes
     a ``failed`` list with per-item error details.
     """
-    if payload.action in ("scrape", "thumbnail"):
+    if payload.action in ("scrape", "thumbnail", "contact_sheet"):
         return await _create_batch_task(payload, db)
 
     media_ids = payload.media_ids
@@ -592,6 +592,9 @@ async def _create_batch_task(
     elif action == "thumbnail":
         task_type = TaskType.THUMBNAIL
         title = f"批量生成缩略图 ({len(media_ids)} 个媒体)"
+    elif action == "contact_sheet":
+        task_type = TaskType.THUMBNAIL
+        title = f"批量生成缩略图集 ({len(media_ids)} 个媒体)"
     else:
         raise ValueError(f"Unsupported async action: {action}")
 
@@ -730,6 +733,19 @@ async def _batch_worker(task_id: int, media_ids: list[int], action: str) -> str:
                             )
                     else:
                         failed.append({"id": media_id, "error": "无文件路径"})
+                elif action == "contact_sheet":
+                    from app.services.contact_sheet import generate_contact_sheet
+
+                    if media.file_path and not media.file_missing:
+                        ok = await generate_contact_sheet(
+                            media.file_path, media.id, float(media.duration or 0)
+                        )
+                        if ok:
+                            success.append(media_id)
+                        else:
+                            failed.append({"id": media_id, "error": "缩略图集生成失败"})
+                    else:
+                        failed.append({"id": media_id, "error": "无本地文件或文件缺失"})
         except Exception as exc:  # noqa: BLE001
             failed.append({"id": media_id, "error": str(exc)})
 

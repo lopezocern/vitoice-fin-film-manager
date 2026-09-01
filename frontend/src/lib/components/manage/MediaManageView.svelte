@@ -198,6 +198,24 @@
     }
   }
 
+  // 单项缩略图集生成（4×4 16 帧，手动触发）
+  let sheetingId = $state<string | null>(null);
+
+  async function itemContactSheet(media: Media): Promise<void> {
+    const mid = media.id;
+    closeItemContextMenu();
+    sheetingId = mid;
+    try {
+      await mediaApi.generateContactSheet(mid);
+      showToast('缩略图集已生成（可在详情页查看）');
+    } catch (e) {
+      const detail = (e as { body?: { detail?: string } })?.body?.detail;
+      showToast(detail || '缩略图集生成失败', 'err');
+    } finally {
+      sheetingId = null;
+    }
+  }
+
   // 文件丢失 → 转为网络视频：先确保有可播放的网络源（有番号优先聚合解析），
   // 再调用后端 convert-to-network 完成状态转换（OFFLINE → NETWORK，清除 file_missing）。
   let convertingNetId = $state<string | null>(null);
@@ -785,6 +803,36 @@
       showToast('批量刮削失败', 'err');
     }
     batchScraping = false;
+    clearSelection();
+    loadMedia();
+  }
+
+  // 批量生成缩略图集（4×4 16 帧）— 后端异步任务
+  let batchSheeting = $state(false);
+  async function batchContactSheet(): Promise<void> {
+    const mediaIds = selectedNumericIds();
+    if (mediaIds.length === 0) return;
+    batchSheeting = true;
+    try {
+      const resp = await client.post<BatchResponse>('/media/batch', {
+        action: 'contact_sheet',
+        media_ids: mediaIds,
+        params: {}
+      });
+      if (resp.task_id != null) {
+        showToast(`已创建缩略图集任务，共 ${resp.total} 项媒体待处理`);
+        void tasks.refresh(); // 立即更新顶栏任务徽标
+      } else {
+        const fail = resp.failed.length;
+        showToast(
+          `缩略图集生成完成：${resp.success_count} 项成功${fail ? `，${fail} 项失败` : ''}`,
+          fail ? 'err' : 'ok'
+        );
+      }
+    } catch {
+      showToast('批量生成缩略图集失败', 'err');
+    }
+    batchSheeting = false;
     clearSelection();
     loadMedia();
   }
@@ -1578,6 +1626,19 @@
         批量刮削
       {/if}
     </button>
+    <button class="batch-btn" onclick={batchContactSheet} disabled={batchSheeting} title="为选中媒体生成 4×4 缩略图集（1920×1080）">
+      {#if batchSheeting}
+        生成中…
+      {:else}
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="8" height="8" rx="1" />
+          <rect x="13" y="3" width="8" height="8" rx="1" />
+          <rect x="3" y="13" width="8" height="8" rx="1" />
+          <rect x="13" y="13" width="8" height="8" rx="1" />
+        </svg>
+        缩略图集
+      {/if}
+    </button>
   </div>
 </div>
 
@@ -2068,6 +2129,22 @@
       </svg>
       {aiRescrapingId === itemContextMenu!.media.id ? '处理中…' : '重新刮削'}
     </button>
+    {#if !itemContextMenu!.media.file_missing}
+      <button
+        class="item-ctx-item"
+        title="抽取 16 帧合成 4×4 缩略图集（1920×1080，详情页可查看）"
+        onclick={() => { const m = itemContextMenu!.media; itemContactSheet(m); }}
+        disabled={sheetingId === itemContextMenu!.media.id}
+      >
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="8" height="8" rx="1" />
+          <rect x="13" y="3" width="8" height="8" rx="1" />
+          <rect x="3" y="13" width="8" height="8" rx="1" />
+          <rect x="13" y="13" width="8" height="8" rx="1" />
+        </svg>
+        {sheetingId === itemContextMenu!.media.id ? '生成中…' : '生成缩略图集'}
+      </button>
+    {/if}
     {#if itemContextMenu!.media.file_missing}
       <button
         class="item-ctx-item convert-item"

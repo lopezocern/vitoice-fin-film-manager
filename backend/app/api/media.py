@@ -1649,6 +1649,49 @@ async def get_thumbnail(media_id: int, db: AsyncSession = Depends(get_db)):
     )
 
 
+@router.get("/{media_id}/contact-sheet")
+async def get_contact_sheet(media_id: int, db: AsyncSession = Depends(get_db)):
+    """Serve the media's 4×4 contact sheet (manual-trigger feature).
+
+    Returns 404 until the user generates one from the detail/manage page.
+    """
+    await _get_media_or_404(db, media_id, allow_deleted=True)
+    from app.services.contact_sheet import contact_sheet_path
+
+    path = contact_sheet_path(media_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Contact sheet not generated yet")
+    return FileResponse(
+        str(path),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.post("/{media_id}/contact-sheet")
+async def generate_media_contact_sheet(media_id: int, db: AsyncSession = Depends(get_db)):
+    """Generate (or regenerate) the 16-frame 4×4 contact sheet for one media."""
+    media = await _get_media_or_404(db, media_id)
+    if media.is_deleted:
+        raise HTTPException(status_code=400, detail="已在回收站")
+    if media.file_missing or not media.file_path:
+        raise HTTPException(status_code=400, detail="无本地文件或文件缺失")
+
+    from app.services.contact_sheet import contact_sheet_path, generate_contact_sheet
+
+    ok = await generate_contact_sheet(
+        media.file_path, media.id, float(media.duration or 0)
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="缩略图集生成失败")
+
+    return {
+        "success": True,
+        "url": f"/media/{media.id}/contact-sheet",
+        "path": str(contact_sheet_path(media.id)),
+    }
+
+
 @router.get("/{media_id}/poster")
 async def get_poster(media_id: int, db: AsyncSession = Depends(get_db)):
     """Get the media's scraped poster image (falls back to 404 if not scraped)."""

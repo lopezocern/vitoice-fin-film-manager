@@ -226,6 +226,13 @@ export interface AIRescrapeResponse {
   message: string;
 }
 
+/** AI 打标建议（对应后端 AITagSuggestion）。 */
+export interface AITagSuggestion {
+  name: string;
+  type: string;
+  confidence: number;
+}
+
 /** Map a backend Media object to the frontend-shaped Media object. */
 export function normalizeMedia(raw: any): Media {
   const mime: string = raw?.mime_type ?? '';
@@ -435,6 +442,21 @@ export const mediaApi = {
   /** AI 辅助二次刮削：AI 分析文件名后重试 TMDB 匹配。 */
   aiRescrape: async (id: string): Promise<AIRescrapeResponse> =>
     client.post<AIRescrapeResponse>(`/media/${id}/ai-rescrape`, {}),
+
+  /** AI 打标：调用 AI 生成标签建议并写入（source="ai"，未验证状态）。 */
+  aiTags: async (id: string): Promise<AITagSuggestion[]> =>
+    client.post<AITagSuggestion[]>(`/media/${id}/ai-tags`, {}),
+
+  /** 生成（或重新生成）4×4 缩略图集（16 帧 1920×1080，手动触发）。 */
+  generateContactSheet: async (id: string): Promise<{ success: boolean; url: string }> =>
+    client.post<{ success: boolean; url: string }>(`/media/${id}/contact-sheet`, {}),
+
+  /**
+   * Contact sheet URL (4×4, 1920×1080). Pass a version (e.g. Date.now())
+   * after regeneration to bust the browser cache.
+   */
+  contactSheetUrl: (id: string, version?: string) =>
+    `${BASE_URL}/media/${id}/contact-sheet${version ? `?v=${encodeURIComponent(version)}` : ''}`,
 
   /** Rename the physical file on disk and optionally re-scrape. */
   rename: async (id: string, newName: string, reScrape = false): Promise<Media> =>

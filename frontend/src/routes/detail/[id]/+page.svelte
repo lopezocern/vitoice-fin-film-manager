@@ -561,6 +561,68 @@
     aiRescrapeResult = null;
   }
 
+  // ---- AI 打标 ----
+  let aiTagging = $state(false);
+  let aiTagResult = $state<{ names: string[] } | null>(null);
+
+  async function aiTagMedia(): Promise<void> {
+    if (!media || aiTagging) return;
+    aiTagging = true;
+    aiTagResult = null;
+    try {
+      const applied = await mediaApi.aiTags(media.id);
+      aiTagResult = { names: applied.map((t) => t.name) };
+      if (applied.length > 0) {
+        showToast(`AI 打标完成：新增 ${applied.length} 个标签`);
+        await reloadMedia();
+      } else {
+        showToast('AI 未生成新标签（可能已打满或素材信息不足）', 'err');
+      }
+    } catch (e) {
+      const status = (e as { status?: number })?.status;
+      const detail = (e as { body?: { detail?: string } })?.body?.detail;
+      let msg = 'AI 打标失败';
+      if (status === 400) msg = detail || '请先在「设置 → AI」中配置模型';
+      else if (status === 502) msg = detail || 'AI 调用失败，请检查配置或网络';
+      showToast(msg, 'err');
+    } finally {
+      aiTagging = false;
+    }
+  }
+
+  // ---- 缩略图集（4×4 16 帧，手动触发） ----
+  // 探测态：unknown=尚未探测（img 加载成功即 ready，onerror 即 absent）。
+  let csState = $state<'unknown' | 'ready' | 'absent'>('unknown');
+  let csGenerating = $state(false);
+  let csVersion = $state(Date.now());
+
+  // 切换详情页目标时重置探测态（media.id 变化时 img 重新加载会自然重探）
+  $effect(() => {
+    if (media?.id) {
+      csState = 'unknown';
+      csVersion = Date.now();
+    }
+  });
+
+  async function generateContactSheet(): Promise<void> {
+    if (!media || csGenerating) return;
+    csGenerating = true;
+    try {
+      await mediaApi.generateContactSheet(media.id);
+      csVersion = Date.now();
+      csState = 'ready';
+      showToast('缩略图集已生成');
+    } catch (e) {
+      const status = (e as { status?: number })?.status;
+      const detail = (e as { body?: { detail?: string } })?.body?.detail;
+      let msg = '缩略图集生成失败';
+      if (status === 400) msg = detail || '无本地文件或文件缺失';
+      showToast(msg, 'err');
+    } finally {
+      csGenerating = false;
+    }
+  }
+
   // ---- 标签操作 ----
   async function addTags(tagIds: string[]): Promise<void> {
     if (!media || tagIds.length === 0) return;
@@ -924,6 +986,15 @@
             AI 辅助刮削
           {/if}
         </button>
+        <button class="action-btn ai-btn" onclick={aiTagMedia} disabled={aiTagging} title="AI 识别内容并自动打标签（需在设置中配置 AI 模型）">
+          {#if aiTagging}
+            <svg class="spin" viewBox="0 0 24 24" width="14" height="14"><path d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8z" fill="currentColor"/></svg>
+            AI 打标中…
+          {:else}
+            <svg viewBox="0 0 24 24" width="14" height="14"><path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z" fill="currentColor"/></svg>
+            AI 打标
+          {/if}
+        </button>
         <button class="action-btn" onclick={startEditTitle} title="编辑">
           <svg viewBox="0 0 24 24" width="14" height="14"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg>
           编辑
@@ -992,6 +1063,24 @@
           </div>
         </div>
         <button class="ai-result-close" onclick={dismissAiResult} title="关闭">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/></svg>
+        </button>
+      </div>
+    {/if}
+
+    <!-- AI 打标结果面板 -->
+    {#if aiTagResult && aiTagResult.names.length > 0}
+      <div class="ai-result-panel ok">
+        <div class="ai-result-icon">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/></svg>
+        </div>
+        <div class="ai-result-content">
+          <div class="ai-result-title">AI 打标完成（{aiTagResult.names.length} 个标签）</div>
+          <div class="ai-result-detail">
+            <span class="ai-value">{aiTagResult.names.join('、')}</span>
+          </div>
+        </div>
+        <button class="ai-result-close" onclick={() => (aiTagResult = null)} title="关闭">
           <svg viewBox="0 0 24 24" width="14" height="14"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/></svg>
         </button>
       </div>
@@ -1108,6 +1197,36 @@
           mediaDuration={media.duration}
           onjump={jumpToSegment}
         />
+        {#if media?.path && !media?.file_missing}
+          <section class="cs-section">
+            <div class="cs-head">
+              <h3>缩略图集</h3>
+              <button
+                class="cs-btn"
+                onclick={generateContactSheet}
+                disabled={csGenerating}
+              >
+                {csGenerating ? '生成中…（约十几秒）' : csState === 'ready' ? '重新生成' : '生成缩略图集'}
+              </button>
+            </div>
+            {#if csGenerating}
+              <div class="cs-placeholder">正在抽取 16 帧并合成 4×4 缩略图集…</div>
+            {:else}
+              <!-- 探测加载：onload → ready；onerror(404 未生成) → absent -->
+              <img
+                class="cs-img"
+                src={mediaApi.contactSheetUrl(media.id, String(csVersion))}
+                alt="缩略图集"
+                onload={() => (csState = 'ready')}
+                onerror={() => (csState = 'absent')}
+                class:hidden={csState === 'absent'}
+              />
+              {#if csState === 'absent'}
+                <div class="cs-placeholder">尚未生成缩略图集，点击右上角按钮生成</div>
+              {/if}
+            {/if}
+          </section>
+        {/if}
         <DetailInfo subtitleCount={subtitles.length} segmentCount={segments.length} linkCount={sourceLinks.length + referenceLinks.length} />
         <DetailSimilar
           similar={similar}
@@ -1674,5 +1793,67 @@
 
   .toast.err {
     background: #ff3b30;
+  }
+
+  /* ---- 缩略图集（4×4 contact sheet，手动触发） ---- */
+  .cs-section {
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: var(--bg-soft, rgba(128, 128, 128, 0.06));
+    border: 1px solid var(--rule, rgba(128, 128, 128, 0.15));
+    border-radius: var(--radius-lg, 12px);
+  }
+
+  .cs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .cs-head h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .cs-btn {
+    padding: 5px 14px;
+    font-size: 12.5px;
+    border: 1px solid var(--rule, rgba(128, 128, 128, 0.25));
+    border-radius: var(--radius-full, 999px);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 120ms ease;
+  }
+
+  .cs-btn:hover:not(:disabled) {
+    background: rgba(128, 128, 128, 0.12);
+  }
+
+  .cs-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  .cs-img {
+    display: block;
+    width: 100%;
+    border-radius: 8px;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    background: #000;
+  }
+
+  .cs-img.hidden {
+    display: none;
+  }
+
+  .cs-placeholder {
+    padding: 28px 0;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-dim, rgba(128, 128, 128, 0.9));
   }
 </style>
