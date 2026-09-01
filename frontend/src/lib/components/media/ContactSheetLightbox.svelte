@@ -1,6 +1,9 @@
 <script lang="ts">
   /** 缩略图集灯箱：全屏展示 4×4 contact sheet（1920×1080）。
-   *  点击遮罩 / 关闭按钮 / Esc 关闭。 */
+   *  点击遮罩 / 关闭按钮 / Esc 关闭。
+   *  必须 portal 到 body：组件挂在 .media-content（relative z:1 的 stacking
+   *  context）内，TopNav(z:10)/过滤条(z:3) 会整体压在上面——× 按钮被导航的
+   *  任务按钮盖住、过滤条浮在图上。portal 后与全局弹层（10000+）同级。 */
   import { untrack } from 'svelte';
   import { mediaApi } from '$lib/api/media';
 
@@ -18,6 +21,16 @@
 
   let loaded = $state(false);
   let failed = $state(false);
+
+  /** 把节点搬到 document.body，脱离父级 stacking context（action 模式 portal） */
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      }
+    };
+  }
 
   function close(): void {
     open = false;
@@ -48,6 +61,7 @@
     aria-modal="true"
     aria-label={title ? `${title} 的缩略图集` : '缩略图集'}
     tabindex="-1"
+    use:portal
     onclick={(e) => e.target === e.currentTarget && close()}
   >
     <header class="lb-head">
