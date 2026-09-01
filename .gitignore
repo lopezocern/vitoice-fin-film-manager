@@ -47,6 +47,8 @@ backend/_smoke*.db
 
 # Frontend build artifacts
 frontend/.svelte-kit/
+frontend/build/
+frontend/vite.config.ts.timestamp-*.mjs
 
 # Tauri generated schemas
 src-tauri/gen/

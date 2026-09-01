@@ -1,1 +1,0 @@
-import{c as o}from"./Bzpi8Sg9.js";const a={resolve:(e,r)=>o.post("/network/adult-resolve",{fancode:e,base_url:r||void 0}),refresh:(e,r,t)=>o.post("/network/adult-refresh",{media_id:Number(e),fancode:r,base_url:t||void 0})};export{a};
