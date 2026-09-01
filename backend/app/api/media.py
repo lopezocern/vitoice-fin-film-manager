@@ -59,6 +59,25 @@ _ASSET_ROOTS = tuple(
 )
 
 
+def _resolve_asset_file(db_path: str | None, fallback: Path | None) -> Path | None:
+    """Resolve an asset file to serve, with a convention-path fallback.
+
+    Returns an existing Path, or None. Priority:
+    1. The DB-stored absolute path — if it is inside an asset root and exists.
+    2. The caller-supplied convention fallback (e.g. thumbnail_dir/{id}.jpg) —
+       used when the DB path is stale/missing (e.g. after a data-root
+       migration); callers may write the resolved path back to the DB.
+    """
+    if db_path:
+        if _is_within_asset_root(db_path):
+            p = Path(db_path)
+            if p.is_file():
+                return p
+    if fallback and fallback.is_file() and _is_within_asset_root(str(fallback)):
+        return fallback
+    return None
+
+
 def _is_within_asset_root(path: str | None) -> bool:
     """Return True if the path resolves to a location under an asset root.
 
@@ -195,8 +214,15 @@ async def list_media(
         if dir_clean:
             lib = await db.get(MediaLibrary, library_id)
             if lib and lib.root_path:
-                dir_prefix = str(Path(lib.root_path) / dir_clean).rstrip("/\\") + os.sep
-                query = query.where(Media.file_path.startswith(dir_prefix))
+                dir_prefix = str(Path(lib.root_path) / dir_clean).rstrip("/\\")
+                # Compare separator- and case-normalized (Windows paths are
+                # case-insensitive; DB values may mix separators)
+                norm_prefix = dir_prefix.replace("\\", "/").lower() + "/"
+                query = query.where(
+                    func.replace(func.lower(Media.file_path), "\\", "/").startswith(
+                        norm_prefix
+                    )
+                )
     if exclude_series is True:
         query = query.where(Media.series_id.is_(None))
     if has_series is True:
@@ -1608,14 +1634,13 @@ async def extract_network_metadata(media_id: int):
 async def get_thumbnail(media_id: int, db: AsyncSession = Depends(get_db)):
     """Get the media's thumbnail image."""
     media = await _get_media_or_404(db, media_id, allow_deleted=True)
-    if not media.thumbnail_path:
-        raise HTTPException(status_code=404, detail="No thumbnail available")
-    # S1: never serve files outside the managed asset directories
-    if not _is_within_asset_root(media.thumbnail_path):
+    path = _resolve_asset_file(media.thumbnail_path, app_settings.thumbnail_dir / f"{media_id}.jpg")
+    if path is None:
         raise HTTPException(status_code=404, detail="Thumbnail file not found on disk")
-    path = Path(media.thumbnail_path)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Thumbnail file not found on disk")
+    if path != media.thumbnail_path:
+        # Self-heal: DB path went stale (e.g. data-root migration) — rewrite it
+        media.thumbnail_path = str(path)
+        await db.commit()
 
     return FileResponse(
         str(path),
@@ -1628,14 +1653,18 @@ async def get_thumbnail(media_id: int, db: AsyncSession = Depends(get_db)):
 async def get_poster(media_id: int, db: AsyncSession = Depends(get_db)):
     """Get the media's scraped poster image (falls back to 404 if not scraped)."""
     media = await _get_media_or_404(db, media_id, allow_deleted=True)
-    if not media.poster_path:
-        raise HTTPException(status_code=404, detail="No poster available")
-    # S1: never serve files outside the managed asset directories
-    if not _is_within_asset_root(media.poster_path):
+    fallback: Path | None = None
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        candidate = app_settings.poster_dir / f"{media_id}{ext}"
+        if candidate.is_file():
+            fallback = candidate
+            break
+    path = _resolve_asset_file(media.poster_path, fallback)
+    if path is None:
         raise HTTPException(status_code=404, detail="Poster file not found on disk")
-    path = Path(media.poster_path)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Poster file not found on disk")
+    if path != media.poster_path:
+        media.poster_path = str(path)
+        await db.commit()
 
     return FileResponse(
         str(path),

@@ -61,6 +61,47 @@ def _looks_like_existing_data_dir(target: Path) -> bool:
     return all((target / name).is_dir() for name in ("cache", "assets"))
 
 
+def _rewrite_db_asset_roots(db: Path, old_root: Path, new_root: Path) -> int:
+    """Point DB-stored asset paths from ``old_root`` to ``new_root``.
+
+    Runs on the migrated DB copy (step 2.5) so thumbnails/posters keep
+    resolving after the restart. Case-insensitive prefix match, idempotent.
+    Returns the number of rewritten rows.
+    """
+    import sqlite3
+
+    cols = ("thumbnail_path", "poster_path", "backdrop_path")
+    total = 0
+    try:
+        conn = sqlite3.connect(str(db))
+        cur = conn.cursor()
+        present = {r[1] for r in cur.execute("PRAGMA table_info(media)")}
+        old_prefix = str(old_root)
+        for col in cols:
+            if col not in present:
+                continue
+            rows = cur.execute(
+                f"SELECT id, {col} FROM media WHERE {col} IS NOT NULL"  # noqa: S608
+            ).fetchall()
+            for mid, val in rows:
+                if not isinstance(val, str):
+                    continue
+                low = val.lower()
+                pref = old_prefix.lower()
+                if not (low.startswith(pref + "\\") or low.startswith(pref + "/")):
+                    continue
+                cur.execute(
+                    f"UPDATE media SET {col}=? WHERE id=?",  # noqa: S608
+                    (str(new_root) + val[len(old_root):], mid),
+                )
+                total += 1
+        conn.commit()
+        conn.close()
+    except (OSError, sqlite3.Error) as exc:
+        logger.warning("Asset path rewrite in migrated db failed: %s", exc)
+    return total
+
+
 def change_data_root(new_root: str) -> dict:
     """Migrate data to ``new_root`` and persist the choice via pointer file.
 
@@ -126,6 +167,10 @@ def change_data_root(new_root: str) -> dict:
             except OSError as exc:
                 logger.warning("Could not move %s to new root: %s", src_dir, exc)
 
+    # 2.5 Rewrite DB asset paths old-root → new-root (thumbnails/posters
+    #     keep resolving after the restart)
+    rewritten = _rewrite_db_asset_roots(db_dest, current, target)
+
     # 3. Persist the choice — pointer file lives at the fixed default anchor
     try:
         config._POINTER_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -140,8 +185,8 @@ def change_data_root(new_root: str) -> dict:
         # Roll back nothing silently — db copy exists but won't be picked up.
         return {"ok": False, "message": f"写入指针文件失败（{config._POINTER_FILE}）：{exc}"}
 
-    logger.info("Data root change prepared: %s -> %s (moved: %s)",
-                current, target, moved)
+    logger.info("Data root change prepared: %s -> %s (moved: %s, asset paths rewritten: %d)",
+                current, target, moved, rewritten)
     return {
         "ok": True,
         "message": "数据已迁移到新位置，重启应用后生效",
@@ -149,5 +194,6 @@ def change_data_root(new_root: str) -> dict:
         "old_root": str(current),
         "new_root": str(target),
         "moved_dirs": moved,
+        "asset_paths_rewritten": rewritten,
         "note": "旧位置的 vitoice.db 保留作为安全副本，确认新位置正常后可手动删除",
     }

@@ -83,6 +83,51 @@ def _migrate_legacy_layout(root: Path) -> None:
             logger.warning("Failed to migrate %s -> %s: %s", legacy, dest, exc)
 
 
+def _rewrite_legacy_asset_paths(db_path: Path, root: Path) -> None:
+    """After the layout migration, rewrite DB-stored absolute asset paths
+    (thumbnail_path / poster_path / backdrop_path) that still point into the
+    legacy flat dirs. Idempotent; never raises."""
+    if not db_path.is_file():
+        return
+    import sqlite3
+
+    # column → (legacy flat dir, new layered dir), relative to the data root
+    col_map = {
+        "thumbnail_path": ("thumbnails", "cache/thumbnails"),
+        "poster_path": ("posters", "assets/posters"),
+        "backdrop_path": ("backdrops", "assets/backdrops"),
+    }
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=2)
+        cur = conn.cursor()
+        cols = {r[1] for r in cur.execute("PRAGMA table_info(media)")}
+        total = 0
+        for col, (flat, layered) in col_map.items():
+            if col not in cols:
+                continue
+            old_prefix = str(root / flat)
+            new_prefix = str(root / layered)
+            rows = cur.execute(
+                f"SELECT id, {col} FROM media WHERE {col} IS NOT NULL"  # noqa: S608
+            ).fetchall()
+            for mid, val in rows:
+                if not isinstance(val, str):
+                    continue
+                low = val.lower()
+                pref = old_prefix.lower()
+                if not (low.startswith(pref + "\\") or low.startswith(pref + "/")):
+                    continue
+                newval = new_prefix + val[len(old_prefix):]
+                cur.execute(f"UPDATE media SET {col}=? WHERE id=?", (newval, mid))  # noqa: S608
+                total += 1
+        conn.commit()
+        conn.close()
+        if total:
+            logger.info("Rewrote %d legacy asset paths in DB (%s)", total, db_path.name)
+    except Exception as exc:  # noqa: BLE001 — self-heal must never block startup
+        logger.warning("Asset path rewrite skipped: %s", exc)
+
+
 def _resolve_data_root() -> tuple[Path, str]:
     """Resolve the data root. Returns (path, source) — env|pointer|default."""
     env = os.getenv("VITOICE_DATA_ROOT")
@@ -113,6 +158,7 @@ else:
 # only regenerable asset dirs move into cache/ + assets/)
 try:
     _migrate_legacy_layout(_DATA_ROOT)
+    _rewrite_legacy_asset_paths(_DB_PATH, _DATA_ROOT)
 except Exception as exc:  # noqa: BLE001 — migration must never block startup
     logger.warning("Legacy layout migration skipped: %s", exc)
 

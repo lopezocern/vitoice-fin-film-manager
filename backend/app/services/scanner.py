@@ -144,6 +144,7 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
     from app.tasks.manager import task_manager
 
     new_count = 0
+    relink_count = 0
 
     # --- Phase 1: Load library info (short session) ---
     async with async_session() as session:
@@ -173,6 +174,10 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
             ).where(Media.library_id == library_id)
         )
         existing: dict[str, dict] = {}
+        # Missing (not soft-deleted) records keyed by filename — used to
+        # relink files that were moved/renamed while the app was offline
+        # (no watcher event fired, so only a full scan can reconcile them).
+        missing_by_name: dict[str, list[dict]] = {}
         for row in result.fetchall():
             # Normalize path for consistent comparison (fixes path separator
             # differences between DB-stored paths and os.walk output)
@@ -186,10 +191,16 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
                 "is_deleted": row[6],
                 "orig_path": row[1],  # Keep original for potential migration
             }
+            if row[4] and not row[6] and row[1]:
+                missing_by_name.setdefault(os.path.basename(row[1]), []).append(
+                    existing[norm_path]
+                )
 
     # --- Phase 4: Process files + progress updates (no DB session held) ---
     to_update: list[tuple[int, datetime, int]] = []
     to_create: list[Media] = []
+    # media_id → new file_path — records whose file moved while offline
+    to_relink: dict[int, dict] = {}
     seen_paths: set[str] = set()
 
     for i, file_info in enumerate(files):
@@ -203,6 +214,25 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
                     file_info["file_size"],
                 ))
         else:
+            # Relink pass: if a missing record in this library has the same
+            # filename, the file was most likely moved/renamed offline —
+            # reuse the record instead of creating a shadow duplicate.
+            candidates = missing_by_name.get(file_info["file_name"])
+            if candidates:
+                size_matches = [
+                    c for c in candidates if c["file_size"] == file_info["file_size"]
+                ]
+                chosen = (size_matches or candidates)[0]
+                to_relink[chosen["id"]] = {
+                    "file_path": fp,
+                    "file_size": file_info["file_size"],
+                    "file_modified_at": file_info["file_modified_at"],
+                }
+                candidates.remove(chosen)  # one file relinks one record
+                seen_paths.add(fp)
+                relink_count += 1
+                continue
+
             media = Media(
                 library_id=library_id,
                 title=Path(file_info["file_name"]).stem,
@@ -233,6 +263,8 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
     for fp, info in existing.items():
         if fp is None or info["is_deleted"]:
             continue
+        if info["id"] in to_relink:
+            continue  # handled by the relink pass — old path is expected gone
         if fp not in scanned_paths:
             if not info["file_missing"]:
                 missing_ids.append(info["id"])
@@ -259,6 +291,38 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
                 "Normalized %d file path(s) in library %s",
                 len(path_migrations), library_id,
             )
+
+        # Single-scan relink: a file moved offline produces BOTH a missing old
+        # record and a would-be-new record in the same scan pass. Match them
+        # by filename and relink instead of missing + shadow duplicate.
+        if missing_ids and to_create:
+            name_map: dict[str, list[int]] = {}
+            mrows = (await session.execute(
+                select(Media.id, Media.file_name).where(Media.id.in_(missing_ids))
+            )).fetchall()
+            for mid, fname in mrows:
+                name_map.setdefault(fname, []).append(mid)
+            kept: list[Media] = []
+            for media in to_create:
+                cand = name_map.get(media.file_name)
+                if cand:
+                    rid = cand.pop(0)
+                    missing_ids.remove(rid)
+                    to_relink[rid] = {
+                        "file_path": media.file_path,
+                        "file_size": media.file_size,
+                        "file_modified_at": media.file_modified_at,
+                    }
+                    new_count -= 1
+                    relink_count += 1
+                else:
+                    kept.append(media)
+            if len(kept) != len(to_create):
+                logger.info(
+                    "Relinked %d offline-moved file(s) in library %s",
+                    len(to_create) - len(kept), library_id,
+                )
+                to_create = kept
 
         # Mark missing files
         if missing_ids:
@@ -304,6 +368,37 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
                 len(restored_ids), library_id,
             )
 
+        # Relink records whose files moved while the app was offline
+        if to_relink:
+            net_result = await session.execute(
+                select(MediaUrl.media_id)
+                .where(
+                    MediaUrl.media_id.in_(list(to_relink)),
+                    MediaUrl.url_role == UrlRole.SOURCE,
+                )
+                .distinct()
+            )
+            has_network_ids = {row[0] for row in net_result.fetchall()}
+            for rid, vals in to_relink.items():
+                relinked_type = (
+                    MediaType.BOTH if rid in has_network_ids else MediaType.LOCAL
+                )
+                await session.execute(
+                    update(Media)
+                    .where(Media.id == rid)
+                    .values(
+                        file_path=vals["file_path"],
+                        file_size=vals["file_size"],
+                        file_modified_at=vals["file_modified_at"],
+                        file_missing=False,
+                        missing_detected_at=None,
+                        media_type=relinked_type,
+                    )
+                )
+            logger.info(
+                "Relinked %d moved file(s) in library %s", len(to_relink), library_id
+            )
+
         # Batch update modified files (no N+1)
         for media_id, mod_time, file_size in to_update:
             await session.execute(
@@ -312,7 +407,7 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
                 .values(file_modified_at=mod_time, file_size=file_size)
             )
 
-        if missing_ids or restored_ids or to_update or path_migrations:
+        if missing_ids or restored_ids or to_update or path_migrations or to_relink:
             await session.commit()
 
         # Guard against concurrent scans: re-check file_paths right before insert
