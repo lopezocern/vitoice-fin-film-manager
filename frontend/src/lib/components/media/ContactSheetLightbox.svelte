@@ -1,6 +1,6 @@
 <script lang="ts">
   /** 缩略图集灯箱：全屏展示 4×4 contact sheet（1920×1080）。
-   *  点击遮罩 / 关闭按钮 / Esc 关闭。
+   *  点击图片以外任意区域 / 关闭按钮 / Esc 关闭。
    *  必须 portal 到 body：组件挂在 .media-content（relative z:1 的 stacking
    *  context）内，TopNav(z:10)/过滤条(z:3) 会整体压在上面——× 按钮被导航的
    *  任务按钮盖住、过滤条浮在图上。portal 后与全局弹层（10000+）同级。 */
@@ -36,6 +36,12 @@
     open = false;
   }
 
+  /** 点击图片以外任意区域关闭：图片本体（含右键/选中）不触发，其余全部关闭 */
+  function onBackdropClick(e: MouseEvent): void {
+    if (e.target instanceof HTMLImageElement) return;
+    close();
+  }
+
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape' && open) close();
   }
@@ -62,7 +68,7 @@
     aria-label={title ? `${title} 的缩略图集` : '缩略图集'}
     tabindex="-1"
     use:portal
-    onclick={(e) => e.target === e.currentTarget && close()}
+    onclick={onBackdropClick}
   >
     <header class="lb-head">
       <span class="lb-title">{title ?? '缩略图集'}</span>
