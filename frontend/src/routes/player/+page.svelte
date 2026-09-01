@@ -1669,7 +1669,7 @@
   {:else if !media}
     <div class="state-screen">
       <div class="state-text">未指定要播放的媒体</div>
-      <button class="back-btn" onclick={() => goto('/media')}>返回媒体库</button>
+      <button class="back-btn" onclick={() => goto('/media?mode=library')}>返回媒体库</button>
     </div>
   {:else if fileMissingInfo}
     <div class="state-screen file-missing-screen">

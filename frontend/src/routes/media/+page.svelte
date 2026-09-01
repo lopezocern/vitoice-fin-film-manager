@@ -113,7 +113,15 @@
   });
 
   // ---- 状态（从 URL 初始化）----
-  const initialParams = $pageStore.url.searchParams;
+  // 关键：popstate（详情/播放器返回）重挂载本组件时，SvelteKit 的 page store 可能
+  // 只恢复 pathname 而丢失 query（实测 $page.url=/media 而 location=/media?mode=library）。
+  // 若用它初始化，pageMode 会退回 center，URL 同步 effect 再把恢复的历史条目
+  // replaceState 成 mode=center——表现为"从详情/播放器返回总是落在观看中心"。
+  // 浏览器在派发 popstate 前就已更新 location，client 端以 location 为准（ground truth）；
+  // SSR/水合时两者描述同一 URL，值一致，无失配风险。
+  const initialParams = browser
+    ? new URLSearchParams(window.location.search)
+    : $pageStore.url.searchParams;
   let pageMode = $state<'center' | 'library'>(
     initialParams.get('mode') === 'library' || initialParams.has('view') || initialParams.has('section')
       ? 'library'
