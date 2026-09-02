@@ -20,6 +20,13 @@
   import { formatTime, formatSize, formatResolution } from '$lib/utils/format';
   import { errorMessage } from '$lib/utils/errors';
   import { pageList, maxVisiblePages as maxVisiblePagesFor, MANAGE_PAGER_METRICS } from '$lib/utils/pagination';
+  import {
+    buildManageParams,
+    applyClientFilters as applyClientFiltersPure,
+    filterTreeByType,
+    type StatusFilter,
+    type ManageQueryState
+  } from '$lib/manage/filters';
   import TagSelector from '$lib/components/common/TagSelector.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import RatingStars from '$lib/components/common/RatingStars.svelte';
@@ -40,8 +47,6 @@
   } = $props();
 
   // ---- 本地筛选/排序/视图状态（独立于 /media） ----
-  type StatusFilter = '' | 'rated' | 'unrated' | 'favorite' | 'untagged' | 'problem' | 'missing' | 'unmatched';
-
   let filterLib = $state('');
   let filterDir = $state('');
   let filterType = $state('');
@@ -511,20 +516,6 @@
     filterTagType = filterTagType === typeId ? '' : typeId;
   }
 
-  // 按分类过滤标签树：匹配分类的节点整棵保留；不匹配但子节点匹配的，子节点提升为根
-  function filterTreeByType(nodes: Tag[], typeId: number): Tag[] {
-    const out: Tag[] = [];
-    for (const n of nodes) {
-      if (n.tag_type_id === typeId) {
-        out.push(n);
-      } else if (n.children?.length) {
-        const kids = filterTreeByType(n.children, typeId);
-        if (kids.length) out.push(...kids);
-      }
-    }
-    return out;
-  }
-
   const visibleTagRoots = $derived.by(() => {
     if (filterTagType === '') return tags;
     return filterTreeByType(tags, filterTagType);
@@ -557,41 +548,27 @@
   ];
 
   // ---- 构建请求参数 ----
+  // 纯函数见 $lib/manage/filters；这里只把响应式状态打包成入参
+  const queryState = $derived<ManageQueryState>({
+    sortField,
+    sortOrder,
+    page,
+    pageSize,
+    libraryId: filterLib,
+    dir: filterDir,
+    type: filterType,
+    tags: filterTags,
+    status: filterStatus,
+    source: filterSource
+  });
+
   function buildParams(): Record<string, unknown> {
-    const p: Record<string, unknown> = {
-      sort: sortField,
-      order: sortOrder,
-      page,
-      page_size: pageSize
-    };
-    if (filterLib) p.library_id = filterLib;
-    if (filterDir) p.dir = filterDir;
-    if (filterType) p.type = filterType;
-    if (filterTags.length) p.tags = filterTags;
-    if (filterStatus === 'favorite') p.favorite = true;
-    if (filterStatus === 'rated') p.rating_min = 1;
-    if (filterStatus === 'unrated') p.rating_max = 0;
-    // 文件缺失走后端精确参数；problem / unmatched 由客户端二次过滤
-    if (filterStatus === 'missing') p.file_missing = true;
-    // 来源筛选：local / network 走 source 参数；missing 走 file_missing
-    if (filterSource === 'local') p.source = 'local';
-    if (filterSource === 'network') p.source = 'network';
-    if (filterSource === 'missing') p.file_missing = true;
-    return p;
+    return buildManageParams(queryState);
   }
 
   // 客户端二次过滤（untagged / problem / unmatched 等无法精确表达的状态）
   function applyClientFilters(list: Media[]): Media[] {
-    if (filterStatus === 'untagged') {
-      return list.filter((m) => !m.tags || m.tags.length === 0);
-    }
-    if (filterStatus === 'problem') {
-      return list.filter((m) => m.file_missing || !m.poster || !m.scrape_data);
-    }
-    if (filterStatus === 'unmatched') {
-      return list.filter((m) => !m.poster && !m.scrape_data);
-    }
-    return list;
+    return applyClientFiltersPure(list, filterStatus);
   }
 
   async function restoreScrollPosition(): Promise<void> {
