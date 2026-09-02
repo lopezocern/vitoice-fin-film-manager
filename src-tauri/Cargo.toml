@@ -19,6 +19,11 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[features]
+# 生产构建（tauri build / cargo build --features custom-protocol）内嵌前端资产，
+# 缺了它 release exe 会去连 devUrl(127.0.0.1:5173) → 白屏 ERR_CONNECTION_REFUSED
+custom-protocol = ["tauri/custom-protocol"]
+
 [profile.release]
 panic = "abort"
 codegen-units = 1
