@@ -26,8 +26,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:41011; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:41011 ipc: http://ipc.localhost; script-src 'self'",
-      "devCsp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:8765; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:8765 ipc: http://ipc.localhost ws://127.0.0.1:5173; script-src 'self' 'unsafe-eval'"
+      "csp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:41011; media-src 'self' blob: mediastream: data: http://127.0.0.1:41011; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:41011 ipc: http://ipc.localhost; script-src 'self' https://cdn.jsdelivr.net",
+      "devCsp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:8765; media-src 'self' blob: mediastream: data: http://127.0.0.1:8765; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:8765 ipc: http://ipc.localhost ws://127.0.0.1:5173; script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net"
     }
   },
   "bundle": {

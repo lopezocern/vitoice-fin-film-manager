@@ -11,8 +11,18 @@ should use these functions instead of各自硬编码路径。
 import sys
 from pathlib import Path
 
-# backend/ directory: this file is at backend/app/services/ffmpeg_utils.py
-_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+# backend/ directory when running from source: this file lives at
+# backend/app/services/ffmpeg_utils.py, so three levels up is backend/.
+#
+# Under PyInstaller (onedir) the bundle is unpacked into `_internal/` and the
+# bundled ffmpeg lands there too (see vitoice-backend.spec: `('bin', 'bin')`).
+# A frozen module's `__file__` is a synthetic path managed by PyInstaller's
+# importer and is NOT a reliable anchor, so resolve against `sys._MEIPASS`
+# explicitly instead of hoping `parent.parent.parent` happens to line up.
+if getattr(sys, "frozen", False):  # pragma: no cover - only true in the packaged app
+    _BACKEND_DIR = Path(sys._MEIPASS)
+else:
+    _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 
 _FFMPEG_PATH: str | None = None
 _FFPROBE_PATH: str | None = None
