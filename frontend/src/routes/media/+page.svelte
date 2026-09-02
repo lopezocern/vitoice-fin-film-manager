@@ -12,6 +12,7 @@
   import { settingsStore } from '$lib/stores/settings.svelte';
   import { librariesStore } from '$lib/stores/libraries.svelte';
   import { mediaScroll } from '$lib/stores/mediaScroll.svelte';
+  import { pageList, maxVisiblePages as maxVisiblePagesFor, MEDIA_PAGER_METRICS } from '$lib/utils/pagination';
   import FilterBar from '$lib/components/media/FilterBar.svelte';
   import PosterWall from '$lib/components/media/PosterWall.svelte';
   import SeriesWall from '$lib/components/media/SeriesWall.svelte';
@@ -947,48 +948,14 @@
     mediaScroll.page = 1;
   }
 
-  // 分页页码列表 — maxVisible 为当前容器宽度下可容纳的页码数(动态)
-  function pageList(current: number, tp: number, maxVisible: number): (number | string)[] {
-    if (tp <= maxVisible) return Array.from({ length: tp }, (_, i) => i + 1);
-    const pages: (number | string)[] = [1];
-    // 当前页左右窗口:总窗口 = 首尾各1 + 当前页1 + 左右 half*2
-    const half = Math.max(1, Math.floor((maxVisible - 3) / 2));
-    let left = Math.max(2, current - half);
-    let right = Math.min(tp - 1, current + half);
-    // 窗口靠近边缘时向另一侧扩展,保持窗口饱满
-    if (right - left + 1 < maxVisible - 2) {
-      const slack = maxVisible - 2 - (right - left + 1);
-      if (left === 2) right = Math.min(tp - 1, right + slack);
-      else if (right === tp - 1) left = Math.max(2, left - slack);
-    }
-    if (left > 2) pages.push('…');
-    for (let i = left; i <= right; i++) pages.push(i);
-    if (right < tp - 1) pages.push('…');
-    pages.push(tp);
-    return pages;
-  }
-
   // ---- 自适应可见页数 ----
   // 分页区空间充足时默认展示最多 15 个页码;窗口变窄时按实际宽度缩减
   // (最小 5 个,保证导航可用)。用 ResizeObserver 监听容器宽度实时重算。
+  // 页码窗口算法与像素预算见 $lib/utils/pagination(与管理页共用,预算按页面传参)
   let pagerEl = $state<HTMLElement | null>(null);
   let pagerWidth = $state(0);
 
-  // 估算常量(px):页码按钮+间距、前后导航、省略号、右侧"每页"区、容器 padding/gap
-  const PG_BTN_W = 36;
-  const PG_NAV_W = 72; // 上一页+下一页(34*2 + 间距)
-  const PG_ELLIPSIS_W = 32; // 两个省略号
-  const PG_RIGHT_W = 150; // 右侧每页下拉区
-  const PG_PADDING = 78; // padding 32*2 + gap 12 + 边框余量
-
-  const maxVisiblePages = $derived(
-    pagerWidth === 0
-      ? 15 // 首次渲染未测量时按宽屏处理
-      : Math.max(
-          5,
-          Math.min(15, Math.floor((pagerWidth - PG_PADDING - PG_RIGHT_W - PG_NAV_W - PG_ELLIPSIS_W) / PG_BTN_W))
-        )
-  );
+  const maxVisiblePages = $derived(maxVisiblePagesFor(pagerWidth, MEDIA_PAGER_METRICS));
 
   $effect(() => {
     const el = pagerEl;
