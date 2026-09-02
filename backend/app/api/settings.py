@@ -445,6 +445,40 @@ async def post_data_root(payload: DataRootPayload):
     return result
 
 
+# =====================================================================
+# Reset all data (in-app fresh start)
+#
+# POST /settings/reset-data — pre-reset backup → wipe every table →
+# clear regenerable/scraped asset dirs. backups/ and the data-root
+# pointer are preserved. Declared BEFORE the /{key} catch-all below.
+# =====================================================================
+
+class ResetDataPayload(BaseModel):
+    """Typed confirmation — the frontend dialog requires the user to
+    type ``重置`` before this request is sent."""
+
+    confirm: str
+
+
+@router.post("/reset-data")
+async def post_reset_data(payload: ResetDataPayload):
+    """Wipe all application data after creating a safety backup.
+
+    Requires ``{"confirm": "重置"}`` — any other value is rejected so a
+    stray/mistyped request can never trigger the wipe.
+    """
+    import asyncio
+
+    from app.services.reset_data import reset_all_data
+
+    if (payload.confirm or "").strip() != "重置":
+        raise HTTPException(status_code=422, detail='确认词不正确：需要输入"重置"')
+    result = await asyncio.to_thread(reset_all_data)
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("message", "重置失败"))
+    return result
+
+
 @router.get("/{key}", response_model=SettingResponse)
 async def get_setting(key: str, db: AsyncSession = Depends(get_db)):
     """Get a single setting by key. Sensitive values are masked."""

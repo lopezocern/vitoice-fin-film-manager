@@ -7,7 +7,7 @@
   import { client, ApiError } from '$lib/api/client';
   import { settingsStore } from '$lib/stores/settings.svelte';
   import SourceManager from '$lib/components/settings/SourceManager.svelte';
-  import { openExternalUrl } from '$lib/utils/network-media';
+  import { openExternalUrl, isTauriEnv } from '$lib/utils/network-media';
 
   // 字节数 → 人类可读 (B/KB/MB/GB)
   function formatBytes(n: number): string {
@@ -727,6 +727,62 @@
     }
   }
 
+  // ---- 重置所有数据（恢复全新安装状态） ----
+  interface ResetResult {
+    ok: boolean;
+    message: string;
+    backup_path?: string;
+    tables_cleared?: number;
+    removed_files?: number;
+    freed_bytes?: number;
+  }
+  let resetDialogOpen = $state(false);
+  let resetConfirmText = $state('');
+  let resetBusy = $state(false);
+  let resetResult = $state<ResetResult | null>(null);
+
+  function openResetDialog(): void {
+    resetConfirmText = '';
+    resetResult = null;
+    resetDialogOpen = true;
+  }
+
+  function closeResetDialog(): void {
+    if (resetBusy) return;
+    resetDialogOpen = false;
+  }
+
+  function handleResetKeydown(e: KeyboardEvent): void {
+    if (!resetDialogOpen) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeResetDialog();
+    }
+  }
+
+  async function doResetAllData(): Promise<void> {
+    if (resetBusy) return;
+    // 输入确认词作为前端闸门；后端再次校验同一确认词（双保险）
+    if (resetConfirmText.trim() !== '重置') {
+      showToast('请输入"重置"以确认');
+      return;
+    }
+    resetBusy = true;
+    try {
+      const res = await client.post<ResetResult>('/settings/reset-data', {
+        confirm: resetConfirmText.trim()
+      });
+      resetResult = res;
+      showToast(res.message || '已重置');
+      await Promise.all([loadBackups(), loadDataRoot()]);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : '重置失败';
+      showToast(msg);
+    } finally {
+      resetBusy = false;
+    }
+  }
+
   // ---- AI 连接测试 ----
   // 检测值是否为后端返回的掩码值（****xxxx），掩码值不能作为真实 key 发送
   function isMaskedValue(v: string | undefined): boolean {
@@ -845,11 +901,18 @@
       showToast('路径不合法，已拒绝打开');
       return;
     }
+    if (!isTauriEnv()) {
+      showToast('打开目录需在桌面端运行');
+      return;
+    }
     try {
-      const { open } = await import('@tauri-apps/plugin-shell');
-      await open(dir);
-    } catch {
-      showToast('无法打开目录（需在桌面端运行）');
+      // 用 opener 的 openPath：shell.open 默认只放行 mailto/tel/http(s)，
+      // 本地目录路径会被其作用域正则拒绝（且 shell.open 自 2.1.0 起已 deprecated）
+      const { openPath } = await import('@tauri-apps/plugin-opener');
+      await openPath(dir);
+    } catch (e) {
+      // 透出真实错误，避免把所有失败笼统归因为"非桌面端"
+      showToast(`无法打开目录：${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -1452,11 +1515,91 @@
               </div>
             {/if}
           </div>
+
+          <!-- 数据库分区：重置所有数据 -->
+          <div class="section-block">
+            <h3 class="section-title">重置所有数据</h3>
+            <p class="section-desc">
+              清空全部媒体库、媒体、标签、系列、任务与设置，恢复到全新安装状态。
+              重置前自动备份当前数据库到 backups 文件夹（pre-reset-*.db，不参与自动轮换）；
+              备份文件与数据位置设置会保留。
+            </p>
+            <div class="section-action danger-row">
+              <button
+                class="primary-btn danger-btn"
+                onclick={openResetDialog}
+                disabled={resetBusy}
+              >
+                {resetBusy ? '重置中…' : '重置所有数据…'}
+              </button>
+            </div>
+            {#if resetResult?.ok}
+              <div class="dataroot-result">
+                <strong>✓ {resetResult.message}</strong>
+                <p>备份位置：<code>{resetResult.backup_path}</code></p>
+                <p>
+                  已清空 {resetResult.tables_cleared ?? 0} 张表，清理 {resetResult.removed_files ?? 0} 个资产文件
+                  （约 {formatBytes(resetResult.freed_bytes ?? 0)}）
+                </p>
+                <p class="dataroot-restart">当前页面数据已失效，建议重启应用或刷新页面。</p>
+              </div>
+            {/if}
+          </div>
         {/if}
       {/if}
     {/if}
   </section>
 </div>
+
+<!-- 重置所有数据：多层确认对话框（说明后果 + 输入确认词；后端二次校验） -->
+<svelte:window onkeydown={handleResetKeydown} />
+{#if resetDialogOpen}
+  <div
+    class="reset-backdrop"
+    role="presentation"
+    onclick={(e) => { if (e.target === e.currentTarget) closeResetDialog(); }}
+  >
+    <div class="reset-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-dialog-title">
+      <div class="reset-head">
+        <h2 id="reset-dialog-title">重置所有数据</h2>
+      </div>
+      <div class="reset-body">
+        <p>此操作将<strong>永久删除</strong>以下内容：</p>
+        <ul>
+          <li>全部媒体库与媒体记录</li>
+          <li>标签、分段、系列、智能文件夹、任务记录</li>
+          <li>全部设置（含 AI / TMDB 密钥、刮削源、代理配置）</li>
+          <li>缩略图、截图、海报、剧照等缓存与资产文件</li>
+        </ul>
+        <p>
+          重置前会自动备份当前数据库到 backups 文件夹
+          （pre-reset-*.db，不参与自动轮换，可随时手动恢复）；数据位置设置保留。
+        </p>
+        <div class="reset-confirm-row">
+          <label for="reset-confirm-input">请输入 <strong>重置</strong> 以确认：</label>
+          <input
+            id="reset-confirm-input"
+            class="reset-input"
+            type="text"
+            bind:value={resetConfirmText}
+            placeholder="重置"
+            disabled={resetBusy}
+          />
+        </div>
+      </div>
+      <div class="reset-foot">
+        <button class="reset-btn" onclick={closeResetDialog} disabled={resetBusy}>取消</button>
+        <button
+          class="reset-btn danger"
+          onclick={doResetAllData}
+          disabled={resetBusy || resetConfirmText.trim() !== '重置'}
+        >
+          {resetBusy ? '重置中…' : '确认重置'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if toast}
   <div class="toast">{toast}</div>
@@ -2187,5 +2330,110 @@
   .ai-doc-item .inlink:hover {
     text-decoration: none;
     color: var(--accent-strong, var(--accent));
+  }
+
+  /* ---- 重置所有数据：确认对话框 ---- */
+  .reset-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.32);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: resetFade 200ms ease;
+  }
+  @keyframes resetFade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .reset-dialog {
+    width: 100%;
+    max-width: 460px;
+    background: var(--bg2);
+    border-radius: var(--radius-card);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+    animation: resetPop 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @keyframes resetPop {
+    from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .reset-head {
+    padding: 20px 24px 0;
+  }
+  .reset-head h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--accent2, #ff3b30);
+  }
+  .reset-body {
+    padding: 10px 24px 4px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .reset-body ul {
+    margin: 6px 0;
+    padding-left: 20px;
+  }
+  .reset-body strong {
+    color: var(--ink);
+  }
+  .reset-confirm-row {
+    margin: 14px 0 8px;
+  }
+  .reset-confirm-row label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .reset-input {
+    width: 100%;
+    height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius, 8px);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .reset-input:focus {
+    outline: none;
+    border-color: var(--accent2, #ff3b30);
+  }
+  .reset-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 24px 20px;
+  }
+  .reset-btn {
+    height: 34px;
+    padding: 0 16px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius, 8px);
+    background: var(--bg2);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 200ms ease;
+  }
+  .reset-btn:hover:not(:disabled) {
+    border-color: var(--muted);
+  }
+  .reset-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .reset-btn.danger {
+    background: #ff3b30;
+    border-color: #ff3b30;
+    color: #fff;
+  }
+  .reset-btn.danger:hover:not(:disabled) {
+    filter: brightness(1.08);
   }
 </style>
