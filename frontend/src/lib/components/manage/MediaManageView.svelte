@@ -643,7 +643,8 @@
   $effect(() => {
     const current = settingsStore.showRestricted;
     if (prevRestrictedManage !== null && prevRestrictedManage !== current) {
-      loadMedia();
+      // untrack：loadMedia 的同步部分写 loading/error（$state），防御性隔离
+      untrack(() => void loadMedia());
     }
     prevRestrictedManage = current;
   });

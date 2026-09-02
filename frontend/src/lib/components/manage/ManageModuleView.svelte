@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { client, ApiError } from '$lib/api/client';
   import { mediaApi, type Media } from '$lib/api/media';
@@ -193,7 +193,8 @@
     kind;
     query = '';
     status = 'all';
-    void load();
+    // untrack：load 的同步部分写 loading/error（$state），避免被追踪进 effect 依赖面
+    untrack(() => void load());
   });
 
   onMount(() => {

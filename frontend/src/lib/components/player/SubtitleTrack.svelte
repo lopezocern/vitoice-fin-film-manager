@@ -2,6 +2,7 @@
   // 字幕轨道组件：解析 SRT / VTT / ASS，按当前时间显示对应字幕。
   // 字幕内容通过 file_path（URL）或 /media/{id}/subtitles/{sid}/content 端点尽力获取；
   // 后端尚未提供 content 端点时静默隐藏（无字幕状态）。
+  import { untrack } from 'svelte';
   import { BASE_URL } from '$lib/api/client';
   import { settingsStore } from '$lib/stores/settings.svelte';
 
@@ -191,7 +192,8 @@
     const sub = subtitle;
     const en = enabled;
     if (sub && en) {
-      loadSubtitle(sub);
+      // untrack：loadSubtitle 的同步部分写 cues/failed（$state），防御性隔离
+      untrack(() => void loadSubtitle(sub));
     } else {
       cues = [];
     }

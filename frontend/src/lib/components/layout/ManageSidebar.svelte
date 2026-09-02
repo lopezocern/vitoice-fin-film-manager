@@ -4,6 +4,7 @@
   // (media tab), and tag management tree (tags tab) with full CRUD via
   // context menus, inline rename, color picker, move-to-type, add-child,
   // and add-type.
+  import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { sidebar } from '$lib/stores/sidebar.svelte';
@@ -52,7 +53,8 @@
   $effect(() => {
     if (countsLoaded) return;
     countsLoaded = true;
-    void loadNavCounts();
+    // untrack：loadNavCounts 同步部分若读写 $state 会被追踪进 effect 依赖面
+    untrack(() => void loadNavCounts());
   });
   const issueCount = $derived(navCounts.missing + navCounts.noPoster + navCounts.noMetadata);
   const problemCount = $derived(navCounts.missing + navCounts.noMetadata);

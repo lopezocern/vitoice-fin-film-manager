@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { tasks } from '$lib/stores/tasks.svelte';
   import { tasksApi, type Task, type TaskType } from '$lib/api/tasks';
 
@@ -191,7 +192,9 @@
   // 顶栏看不到"有任务运行"的标记，必须点进任务中心才显示。
   let drawerOpen = $derived(tasks.open);
   $effect(() => {
-    refresh();
+    // untrack：refresh 若同步部分读写 $state 会扩大 effect 依赖面（轮询本体在
+    // setInterval 回调里跑，天然不在追踪上下文，无需包裹）
+    untrack(() => void refresh());
     const interval = drawerOpen ? 3000 : 5000;
     refreshTimer = setInterval(refresh, interval);
     if (drawerOpen) {

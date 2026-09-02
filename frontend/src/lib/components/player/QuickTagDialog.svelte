@@ -2,6 +2,7 @@
   // 快速打标弹窗：从 tagsApi.list() 加载标签（含 tag_type_id 与 children），
   // 扁平化后按类型分组、支持搜索与多选；确认后对每个标签调用
   // POST /media/{mediaId}/tags { tag_id }（409 重复自动跳过）。
+  import { untrack } from 'svelte';
   import { client } from '$lib/api/client';
   import { tagsApi } from '$lib/api/tags';
 
@@ -114,7 +115,8 @@
       selected = new Set(preselectIds);
       resultMsg = null;
       error = null;
-      load();
+      // untrack：load 的同步部分可能读写 $state，避免被追踪进 effect 依赖面
+      untrack(() => void load());
       queueMicrotask(() => searchInput?.focus());
     }
   });
