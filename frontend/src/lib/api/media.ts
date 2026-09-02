@@ -128,6 +128,71 @@ export interface Media {
   last_played_at?: string;
 }
 
+/**
+ * Backend wire shape of a Media row (see `MediaResponse` in the API).
+ *
+ * Declared as a type alias, not an interface, on purpose: `normalizeMedia`
+ * spreads the payload into `Media.metadata` (`Record<string, unknown>`), and
+ * only type aliases get an implicit index signature. Every field is optional
+ * and nullable because list endpoints omit fields the detail endpoint returns.
+ */
+export type MediaPayload = {
+  id?: number | string | null;
+  library_id?: number | string | null;
+  file_path?: string | null;
+  file_name?: string | null;
+  mime_type?: string | null;
+  title?: string | null;
+  year?: number | null;
+  release_date?: string | null;
+  season_number?: number | null;
+  episode_number?: number | null;
+  series_id?: number | null;
+  series_title?: string | null;
+  description?: string | null;
+  media_type?: SourceMediaType | null;
+  file_missing?: boolean | null;
+  metadata_ignored?: boolean | null;
+  file_size?: number | null;
+  duration?: number | null;
+  width?: number | null;
+  height?: number | null;
+  thumbnail_path?: string | null;
+  poster_path?: string | null;
+  has_contact_sheet?: boolean | null;
+  rating?: number | null;
+  is_favorite?: boolean | null;
+  /** Attached tag objects; only their `id` survives normalization. */
+  tags?: Array<{ id?: number | string; name?: string } | null> | null;
+  playback_position?: number | null;
+  scrape_data?: ScrapeData | null;
+  urls?: MediaUrl[] | null;
+  segments?: SegmentItem[] | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  last_played_at?: string | null;
+};
+
+/** GET /api/media — paginated list, items still un-normalized. */
+export interface MediaListRawResponse {
+  items: Partial<MediaPayload>[];
+  total?: number;
+  page?: number;
+  page_size?: number;
+}
+
+/** One entry of GET /api/media/home before normalization. */
+export type MediaHomeRawItem =
+  | { kind: 'media'; data: Partial<MediaPayload> | null }
+  | { kind: 'series'; data: import('./series').Series };
+
+export interface MediaHomeRawResponse {
+  continue_watching?: MediaHomeRawItem[];
+  recently_added?: MediaHomeRawItem[];
+  recently_played?: MediaHomeRawItem[];
+  recommendations?: MediaHomeRawItem[];
+}
+
 export type MediaHomeItem =
   | { kind: 'media'; data: Media }
   | { kind: 'series'; data: import('./series').Series };
@@ -268,7 +333,7 @@ export interface ReconcilePreview {
 
 
 /** Map a backend Media object to the frontend-shaped Media object. */
-export function normalizeMedia(raw: any): Media {
+export function normalizeMedia(raw: Partial<MediaPayload> | null | undefined): Media {
   const mime: string = raw?.mime_type ?? '';
   let type: MediaType = 'image';
   if (mime.startsWith('video')) type = 'video';
@@ -282,7 +347,7 @@ export function normalizeMedia(raw: any): Media {
 
   // Tags from the API are full objects [{id, name, ...}]; store IDs as strings
   const tags: string[] = Array.isArray(raw?.tags)
-    ? raw.tags.map((t: any) => (t && t.id !== undefined ? String(t.id) : ''))
+    ? raw.tags.map((t) => (t && t.id !== undefined ? String(t.id) : ''))
     : [];
 
   return {
@@ -299,7 +364,7 @@ export function normalizeMedia(raw: any): Media {
     series_title: raw?.series_title ?? undefined,
     description: raw?.description ?? undefined,
     type,
-    source_type: (raw?.media_type as SourceMediaType) ?? 'local',
+    source_type: raw?.media_type ?? 'local',
     file_missing: !!raw?.file_missing,
     metadata_ignored: !!raw?.metadata_ignored,
     size: raw?.file_size ?? 0,
@@ -351,13 +416,13 @@ async function syncMediaTags(
 
 export const mediaApi = {
   home: async (recommendationSeed?: number): Promise<MediaHomeResponse> => {
-    const raw = await client.get<any>(
+    const raw = await client.get<MediaHomeRawResponse>(
       '/media/home',
       recommendationSeed === undefined ? undefined : { recommendation_seed: recommendationSeed },
       undefined,
       true
     );
-    const normalizeItem = (item: any): MediaHomeItem =>
+    const normalizeItem = (item: MediaHomeRawItem): MediaHomeItem =>
       item.kind === 'series'
         ? { kind: 'series', data: item.data }
         : { kind: 'media', data: normalizeMedia(item.data) };
@@ -402,7 +467,7 @@ export const mediaApi = {
     // 媒体列表默认 noCache：列表是"当前筛选/设置状态"的实时反映（受限开关、
     // 打标、移动库等操作后必须立即拿到最新），30s GET 缓存会导致操作后
     // 列表显示旧数据（用户感知为"刷新不即时"）。列表请求量小，本地后端可承受。
-    const raw = await client.get<any>('/media', apiParams, signal, true);
+    const raw = await client.get<MediaListRawResponse>('/media', apiParams, signal, true);
     const items = Array.isArray(raw?.items) ? raw.items.map(normalizeMedia) : [];
     return {
       items,
@@ -413,7 +478,9 @@ export const mediaApi = {
   },
 
   get: async (id: string): Promise<Media> =>
-    normalizeMedia(await client.get<any>(`/media/${id}`, undefined, undefined, true)),
+    normalizeMedia(
+      await client.get<Partial<MediaPayload>>(`/media/${id}`, undefined, undefined, true)
+    ),
 
   /** Fetch available filter options (genres, countries, years) from scraped media. */
   getFilterOptions: async (): Promise<{ genres: string[]; countries: string[]; years: number[] }> =>
@@ -444,7 +511,7 @@ export const mediaApi = {
     // `tags` is intentionally dropped here — handled separately below.
 
     const current = input.tags !== undefined ? await mediaApi.get(id) : undefined;
-    const updatedRaw = await client.put<any>(`/media/${id}`, payload);
+    const updatedRaw = await client.put<Partial<MediaPayload>>(`/media/${id}`, payload);
 
     if (input.tags !== undefined) {
       await syncMediaTags(id, input.tags, current?.tags ?? []);
@@ -472,7 +539,7 @@ export const mediaApi = {
 
   /** Trigger a TMDB scrape for a single media item; returns the updated media. */
   scrape: async (id: string): Promise<Media> =>
-    normalizeMedia(await client.post<any>(`/media/${id}/scrape`, {})),
+    normalizeMedia(await client.post<Partial<MediaPayload>>(`/media/${id}/scrape`, {})),
 
   /** AI 辅助二次刮削：AI 分析文件名后重试 TMDB 匹配。 */
   aiRescrape: async (id: string): Promise<AIRescrapeResponse> =>
@@ -519,7 +586,7 @@ export const mediaApi = {
 
   /** Rename the physical file on disk and optionally re-scrape. */
   rename: async (id: string, newName: string, reScrape = false): Promise<Media> =>
-    normalizeMedia(await client.put<any>(`/media/${id}/rename`, {
+    normalizeMedia(await client.put<Partial<MediaPayload>>(`/media/${id}/rename`, {
       new_name: newName,
       re_scrape: reScrape,
     })),
@@ -528,7 +595,9 @@ export const mediaApi = {
    *  Requires at least one non-expired source URL — add one first via the
    *  aggregator resolve or manual link. Clears file_missing and file_path. */
   convertToNetwork: async (id: string): Promise<Media> =>
-    normalizeMedia(await client.post<any>(`/media/${id}/convert-to-network`, {})),
+    normalizeMedia(
+      await client.post<Partial<MediaPayload>>(`/media/${id}/convert-to-network`, {})
+    ),
 
   streamUrl: (id: string) => `${BASE_URL}/media/${id}/stream`,
   /**

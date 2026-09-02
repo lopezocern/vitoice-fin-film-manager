@@ -6,7 +6,7 @@
    */
   import { onMount } from 'svelte';
   import { client } from '$lib/api/client';
-  import { mediaApi } from '$lib/api/media';
+  import { mediaApi, type MediaPayload } from '$lib/api/media';
   import { realQueryParam } from '$lib/utils/urlState';
 
   // 读 window.location 而非 $page.url：popstate 重挂载时 page store 会丢 query。
@@ -43,7 +43,7 @@
     }
     const init = async (): Promise<void> => {
       try {
-        const raw = await client.get<any>(`/media/${mediaId}`);
+        const raw = await client.get<Partial<MediaPayload>>(`/media/${mediaId}`);
         title = raw?.title ?? raw?.file_name ?? '';
       } catch {
         loadError = '加载媒体失败';
@@ -66,7 +66,7 @@
     duration = videoEl.duration;
     // 续播：主播放器暂停时已把进度写后端，这里读回并跳转（仅一次）
     void client
-      .get<any>(`/media/${mediaId}`)
+      .get<Partial<MediaPayload>>(`/media/${mediaId}`)
       .then((raw) => {
         const pos = raw?.playback_position ?? 0;
         if (!resumed && pos > 1 && pos < (videoEl?.duration ?? Infinity) - 5) {

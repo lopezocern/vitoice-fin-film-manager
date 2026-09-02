@@ -31,8 +31,28 @@ export interface TaskListParams {
   type?: TaskType;
 }
 
+/** Backend wire shape of a task (see the /api/tasks responses). */
+export type TaskPayload = {
+  id?: number | null;
+  type?: TaskType | null;
+  status?: TaskStatus | null;
+  title?: string | null;
+  subtitle?: string | null;
+  progress?: number | null;
+  total?: number | null;
+  current?: number | null;
+  error_msg?: string | null;
+  result?: Record<string, unknown> | null;
+  library_id?: number | null;
+  media_id?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 /** Map a backend Task (subtitle/error_msg) → frontend Task (message/error). */
-function normalizeTask(raw: any): Task {
+function normalizeTask(raw: Partial<TaskPayload> | null | undefined): Task {
   return {
     id: raw?.id ?? 0,
     type: raw?.type ?? 'scan',
@@ -55,12 +75,19 @@ function normalizeTask(raw: any): Task {
 
 export const tasksApi = {
   list: async (params: TaskListParams = {}): Promise<Task[]> =>
-    (await client.get<any[]>('/tasks', params as Params, undefined, true)).map(normalizeTask),
+    (await client.get<Partial<TaskPayload>[]>('/tasks', params as Params, undefined, true)).map(
+      normalizeTask
+    ),
 
   get: async (id: number): Promise<Task> =>
-    normalizeTask(await client.get<any>(`/tasks/${id}`)),
+    normalizeTask(await client.get<Partial<TaskPayload>>(`/tasks/${id}`)),
 
-  cancel: (id: number) => client.post<Task>(`/tasks/${id}/cancel`),
-  retry: (id: number) => client.post<Task>(`/tasks/${id}/retry`),
+  // These return a raw task row, so normalize before handing it back — the
+  // previous `Task` annotation claimed `message`/`error` fields the backend
+  // actually sends as `subtitle`/`error_msg`.
+  cancel: async (id: number): Promise<Task> =>
+    normalizeTask(await client.post<Partial<TaskPayload>>(`/tasks/${id}/cancel`)),
+  retry: async (id: number): Promise<Task> =>
+    normalizeTask(await client.post<Partial<TaskPayload>>(`/tasks/${id}/retry`)),
   clear: () => client.delete<void>('/tasks/completed')
 };

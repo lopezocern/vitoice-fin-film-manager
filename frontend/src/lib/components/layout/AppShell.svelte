@@ -7,6 +7,19 @@
   import { settingsStore } from '$lib/stores/settings.svelte';
   import { sidebar } from '$lib/stores/sidebar.svelte';
 
+  // Tauri v2 declares ResizeDirection inside @tauri-apps/api/window but does
+  // not export it, so mirror the union locally. The values are the strings
+  // startResizeDragging expects on the Rust side.
+  type ResizeDirection =
+    | 'East'
+    | 'North'
+    | 'NorthEast'
+    | 'NorthWest'
+    | 'South'
+    | 'SouthEast'
+    | 'SouthWest'
+    | 'West';
+
   let { children } = $props();
 
   let searchOpen = $state(false);
@@ -17,13 +30,11 @@
     isTauri = true;
   }
 
-  async function startResize(direction: string): Promise<void> {
+  async function startResize(direction: ResizeDirection): Promise<void> {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const win = getCurrentWindow();
-      // startResizeDragging 在 Tauri v2 中接受 ResizeDirection 枚举
-      // 字符串值：East, West, North, South, NorthEast, NorthWest, SouthEast, SouthWest
-      await win.startResizeDragging(direction as any);
+      await win.startResizeDragging(direction);
     } catch {
       // 浏览器环境或 API 不可用时静默忽略
     }

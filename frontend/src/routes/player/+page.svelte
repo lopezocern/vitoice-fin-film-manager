@@ -6,11 +6,14 @@
   //       player store 文件按约定未修改，本页自包含不依赖其字段。
   import { onMount, onDestroy, untrack } from 'svelte';
   import { goto } from '$app/navigation';
+  // Type-only: hls.js is loaded from CDN at runtime by loadHlsJs(); the
+  // devDependency exists purely to type the instance and its events.
+  import type Hls from 'hls.js';
   import { mediaApi, type RelatedMediaItem } from '$lib/api/media';
   import { seriesApi } from '$lib/api/series';
   import { client, BASE_URL } from '$lib/api/client';
   import { formatTime } from '$lib/utils/format';
-  import { toggleWorkAreaMaximize, isWorkAreaMaximized, sizeLooksMaximized } from '$lib/utils/tauri-window';
+  import { toggleWorkAreaMaximize, isWorkAreaMaximized, sizeLooksMaximized, type WindowLike } from '$lib/utils/tauri-window';
   import { realQueryParam, urlWithParam } from '$lib/utils/urlState';
   import { createAsyncCleanup } from '$lib/utils/asyncCleanup';
   import { classifyNetworkUrl, loadHlsJs, openExternalUrl, isAdultAggregatorUrl, isAdultNetworkMedia, extractFancode } from '$lib/utils/network-media';
@@ -84,7 +87,7 @@
   let fileMissingInfo = $state<{ hasNetwork: boolean; networkUrl: string | null; isPlatform: boolean } | null>(null);
 
   // —— 网络播放状态 ——
-  let hlsInstance: any = null;
+  let hlsInstance: Hls | null = null;
   let networkPlayError = $state<string | null>(null);
 
   // 检查是否有可用的网络源
@@ -390,7 +393,7 @@
     try {
       // 直接使用 client.get 获取后端完整响应（含 segments/subtitles/playback_speed 等）
       // mediaApi.get() 会经过 normalizeMedia() 丢弃播放器所需字段
-      const raw = await client.get<any>(`/media/${id}`);
+      const raw = await client.get<Partial<PlayerMedia>>(`/media/${id}`);
       if (myId !== loadReqId) return;
       if (!raw || typeof raw !== 'object') {
         loadError = '媒体数据无效，ID 可能不存在';
@@ -519,14 +522,16 @@
         hlsInstance = new Hls({ enableWorker: true });
         hlsInstance.loadSource(url);
         hlsInstance.attachMedia(videoEl);
-        hlsInstance.on(Hls.Events.ERROR, (_evt: any, data: any) => {
+        // Parameter types are inferred from hls.js' own event map — do not
+        // annotate them, or a rename on the hls.js side stops being caught.
+        hlsInstance.on(Hls.Events.ERROR, (_evt, data) => {
           if (data.fatal) {
             networkPlayError = 'HLS 流播放失败——源可能已失效或过期，请返回详情页点击「刷新源」更新';
           }
         });
         // 清晰度：解析 master playlist 的 levels + 应用记忆偏好
-        hlsInstance.on(Hls.Events.MANIFEST_PARSED, (_evt: any, data: any) => {
-          const levels = (data?.levels ?? []).map((l: any) => ({
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, (_evt, data) => {
+          const levels = (data?.levels ?? []).map((l) => ({
             height: l.height || 0,
             bitrate: l.bitrate || 0,
           }));
@@ -534,14 +539,14 @@
           currentLevelIdx = -1;
           if (levels.length > 1) {
             const pref = Number(localStorage.getItem('player-quality-height'));
-            const idx = levels.findIndex((l: { height: number }) => l.height === pref);
+            const idx = levels.findIndex((l) => l.height === pref);
             if (idx >= 0 && hlsInstance) {
               hlsInstance.nextLevel = idx;
               currentLevelIdx = idx;
             }
           }
         });
-        hlsInstance.on(Hls.Events.LEVEL_SWITCHED, (_evt: any, data: any) => {
+        hlsInstance.on(Hls.Events.LEVEL_SWITCHED, (_evt, data) => {
           if (typeof data?.level === 'number' && data.level >= 0 && data.level < hlsLevels.length) {
             currentLevelIdx = data.level;
           }
@@ -975,10 +980,13 @@
     }
   }
 
-  async function getTauriWindow() {
+  async function getTauriWindow(): Promise<WindowLike | null> {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      return getCurrentWindow();
+      // Tauri's Window declares setSize(size: LogicalSize|PhysicalSize|Size),
+      // which is wider than WindowLike's plain {width,height}/{x,y} shape.
+      // Adapt once here so every caller uses the same structural contract.
+      return getCurrentWindow() as unknown as WindowLike;
     } catch {
       return null;
     }
@@ -1177,7 +1185,12 @@
     try {
       // 使用非字面量模块标识符 + @vite-ignore，避免 TS 静态解析 / Vite 打包未安装的依赖
       const clipMod = '@tauri-apps/plugin-clipboard-manager';
-      const mod: any = await import(/* @vite-ignore */ clipMod);
+      // Non-literal specifier (deliberate: the plugin may not be installed),
+      // so the module shape has to be declared by hand.
+      const mod = (await import(/* @vite-ignore */ clipMod)) as {
+        writeImage?: (bytes: number[]) => Promise<void>;
+        writeImageBase64?: (base64: string) => Promise<void>;
+      };
       const bytes = new Uint8Array(await blob.arrayBuffer());
       if (typeof mod.writeImage === 'function') {
         await mod.writeImage(Array.from(bytes));
@@ -1193,7 +1206,11 @@
     }
     // 2) 浏览器剪贴板 API
     try {
-      const ClipboardItemCtor = (window as any).ClipboardItem;
+      const ClipboardItemCtor = (
+        window as unknown as {
+          ClipboardItem?: new (items: Record<string, Blob>) => ClipboardItem;
+        }
+      ).ClipboardItem;
       if (ClipboardItemCtor && navigator.clipboard?.write) {
         await navigator.clipboard.write([
           new ClipboardItemCtor({ 'image/png': blob })

@@ -82,7 +82,7 @@
       if (e instanceof ApiError) {
         const detail =
           e.body && typeof e.body === 'object' && 'detail' in e.body
-            ? String((e.body as any).detail)
+            ? String((e.body as Record<string, unknown>).detail)
             : `HTTP ${e.status}`;
         error = `保存片段失败：${detail}`;
       } else if (e instanceof Error) {

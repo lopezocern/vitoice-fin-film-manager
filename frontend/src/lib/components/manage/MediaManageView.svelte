@@ -18,6 +18,7 @@
   import { manageFilterStore } from '$lib/stores/manageFilter.svelte';
   import { tasks } from '$lib/stores/tasks.svelte';
   import { formatTime, formatSize, formatResolution } from '$lib/utils/format';
+  import { errorMessage } from '$lib/utils/errors';
   import TagSelector from '$lib/components/common/TagSelector.svelte';
   import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
   import RatingStars from '$lib/components/common/RatingStars.svelte';
@@ -952,9 +953,8 @@
         }
       );
       renamePreviews = resp.previews;
-    } catch (e: any) {
-      const detail = e?.body?.detail ?? e?.message ?? '预览失败';
-      showToast(detail, 'err');
+    } catch (e) {
+      showToast(errorMessage(e, '预览失败'), 'err');
     } finally {
       renamePreviewLoading = false;
     }
@@ -982,9 +982,8 @@
         fail ? 'err' : 'ok'
       );
       renameDialogOpen = false;
-    } catch (e: any) {
-      const detail = e?.body?.detail ?? e?.message ?? '重命名失败';
-      showToast(detail, 'err');
+    } catch (e) {
+      showToast(errorMessage(e, '重命名失败'), 'err');
     } finally {
       renameApplying = false;
     }
@@ -1097,9 +1096,8 @@
       );
       showToast(`已移动 ${mediaIds.length} 项媒体到指定目录`);
       moveDirDialogOpen = false;
-    } catch (e: any) {
-      const detail = e?.body?.detail ?? e?.message ?? '移动失败';
-      showToast(detail, 'err');
+    } catch (e) {
+      showToast(errorMessage(e, '移动失败'), 'err');
     } finally {
       moveDirMoving = false;
     }

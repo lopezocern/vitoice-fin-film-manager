@@ -3,7 +3,7 @@
   import { browser } from '$app/environment';
   import { goto, replaceState, afterNavigate } from '$app/navigation';
   import { page as pageStore } from '$app/stores';
-  import { mediaApi, normalizeMedia, type Media, type MediaFacets, type MediaHomeResponse, type MediaSortField } from '$lib/api/media';
+  import { mediaApi, normalizeMedia, type Media, type MediaFacets, type MediaHomeResponse, type MediaPayload, type MediaSortField } from '$lib/api/media';
   import { librariesApi, type Library } from '$lib/api/libraries';
   import { tagsApi, type Tag, flattenTags } from '$lib/api/tags';
   import { client } from '$lib/api/client';
@@ -456,7 +456,9 @@
         // F1 fix: the preview endpoint returns raw MediaResponse rows
         // (file_name/poster_path/thumbnail_path), which PosterWall/ListView
         // read as filename/poster/thumbnail — normalize so cards render.
-        const preview = await client.get<any[]>(`/smart-folders/${navNode.value}/preview`);
+        const preview = await client.get<Partial<MediaPayload>[]>(
+          `/smart-folders/${navNode.value}/preview`
+        );
         if (myId !== reqId || Date.now() < snapshotGuardUntil) return;
         const normalized = (preview ?? []).map(normalizeMedia);
         const filtered = applyClientFilters(normalized);

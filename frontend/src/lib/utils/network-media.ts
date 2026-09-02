@@ -1,4 +1,5 @@
 /** Network media utility functions for vitoice player */
+import type Hls from 'hls.js';
 
 export type NetworkUrlType = 'direct' | 'hls' | 'platform';
 
@@ -22,14 +23,21 @@ export function classifyNetworkUrl(url: string): NetworkUrlType {
   return 'platform';
 }
 
-/** Load hls.js dynamically from CDN. */
-export async function loadHlsJs(): Promise<any> {
-  if ((window as any).Hls) return (window as any).Hls;
+/**
+ * Load hls.js dynamically from CDN.
+ *
+ * Types come from the `hls.js` devDependency (type-only import, erased at build
+ * time) — the CDN URL below MUST stay on the same version, otherwise the
+ * declared types stop describing what actually runs.
+ */
+export async function loadHlsJs(): Promise<typeof Hls> {
+  const w = window as unknown as { Hls?: typeof Hls };
+  if (w.Hls) return w.Hls;
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js';
     script.onload = () => {
-      if ((window as any).Hls) resolve((window as any).Hls);
+      if (w.Hls) resolve(w.Hls);
       else reject(new Error('hls.js loaded but Hls not found'));
     };
     script.onerror = () => reject(new Error('Failed to load hls.js from CDN'));

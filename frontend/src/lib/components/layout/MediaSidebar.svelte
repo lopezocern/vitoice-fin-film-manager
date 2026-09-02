@@ -110,7 +110,7 @@
   const groupedTags = $derived.by(() => {
     const map = new Map<number, typeof tags>();
     for (const t of filteredTags) {
-      const tid = (t as any).tag_type_id ?? 0;
+      const tid = t.tag_type_id ?? 0;
       if (!map.has(tid)) map.set(tid, []);
       map.get(tid)!.push(t);
     }

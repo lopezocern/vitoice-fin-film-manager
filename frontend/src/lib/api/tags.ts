@@ -30,8 +30,23 @@ export interface UpdateTagInput {
   sort_order?: number;
 }
 
+/** Backend wire shape of a tag (see `TagResponse` in the API). */
+export type TagPayload = {
+  id?: number | string | null;
+  name?: string | null;
+  color?: string | null;
+  media_count?: number | null;
+  tag_type_id?: number | null;
+  parent_id?: number | string | null;
+  description?: string | null;
+  sort_order?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  children?: TagPayload[] | null;
+};
+
 /** Map a backend Tag (int id, media_count, children tree) → frontend Tag. */
-function normalizeTag(raw: any): Tag {
+function normalizeTag(raw: Partial<TagPayload> | null | undefined): Tag {
   return {
     id: String(raw?.id ?? ''),
     name: raw?.name ?? '',
@@ -75,22 +90,24 @@ export const tagsApi = {
     if (params?.library_id) query.library_id = params.library_id;
     if (params?.exclude_av) query.exclude_av = 'true';
     if (params?.av_only) query.av_only = 'true';
-    return (await client.get<any[]>('/tags', query, undefined, params?.noCache)).map(normalizeTag);
+    return (
+      await client.get<Partial<TagPayload>[]>('/tags', query, undefined, params?.noCache)
+    ).map(normalizeTag);
   },
 
   get: async (id: string): Promise<Tag> =>
-    normalizeTag(await client.get<any>(`/tags/${id}`)),
+    normalizeTag(await client.get<Partial<TagPayload>>(`/tags/${id}`)),
 
   create: async (input: CreateTagInput): Promise<Tag> => {
     const payload: Record<string, unknown> = { name: input.name };
     if (input.color !== undefined) payload.color = input.color;
     if (input.tag_type_id !== undefined) payload.tag_type_id = input.tag_type_id;
     if (input.parent_id !== undefined) payload.parent_id = input.parent_id;
-    return normalizeTag(await client.post<any>('/tags', payload));
+    return normalizeTag(await client.post<Partial<TagPayload>>('/tags', payload));
   },
 
   update: async (id: string, input: UpdateTagInput): Promise<Tag> =>
-    normalizeTag(await client.put<any>(`/tags/${id}`, input)),
+    normalizeTag(await client.put<Partial<TagPayload>>(`/tags/${id}`, input)),
 
   delete: (id: string) => client.delete<void>(`/tags/${id}`),
 

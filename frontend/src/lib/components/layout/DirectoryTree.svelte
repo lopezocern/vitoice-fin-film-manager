@@ -9,6 +9,7 @@
   import { librariesApi, type Library, type TreeNode } from '$lib/api/libraries';
   import { mediaApi } from '$lib/api/media';
   import { formatSize } from '$lib/utils/format';
+  import { errorMessage } from '$lib/utils/errors';
   import { liveQueryParam } from '$lib/stores/urlState.svelte';
 
   interface Props {
@@ -321,9 +322,8 @@
         renameReScrape ? '已重命名并重新刮削' : '已重命名',
         'ok'
       );
-    } catch (e: any) {
-      const msg = e?.message ?? '重命名失败';
-      showToast(msg, 'err');
+    } catch (e) {
+      showToast(errorMessage(e, '重命名失败'), 'err');
     } finally {
       renaming = false;
       renameState = null;
@@ -411,9 +411,8 @@
         await loadChildren(dirAction.libId, parentRel);
         showToast('文件夹已删除', 'ok');
       }
-    } catch (e: any) {
-      const detail = e?.body?.detail ?? e?.message ?? '操作失败';
-      showToast(detail, 'err');
+    } catch (e) {
+      showToast(errorMessage(e, '操作失败'), 'err');
     } finally {
       dirActionLoading = false;
       dirAction = null;

@@ -25,6 +25,7 @@
   import DetailInfo from '$lib/components/detail/DetailInfo.svelte';
   import DetailMediaInfo from '$lib/components/detail/DetailMediaInfo.svelte';
   import { formatResolution, formatSize, formatTime, formatBitrate } from '$lib/utils/format';
+  import { errorStatus } from '$lib/utils/errors';
   import EditMediaDialog from '$lib/components/manage/EditMediaDialog.svelte';
   import type { Segment, Subtitle } from '$lib/components/detail/types';
 
@@ -730,8 +731,8 @@
       const updated = await mediaApi.rename(media.id, trimmed, renameReScrape);
       media = updated;
       showToast(renameReScrape ? '已重命名并重新刮削' : '文件已重命名');
-    } catch (e: any) {
-      const status = (e as { status?: number })?.status;
+    } catch (e) {
+      const status = errorStatus(e);
       let msg = '重命名失败';
       if (status === 409) msg = '目标文件名已存在';
       else if (status === 400) msg = '文件名包含非法字符';

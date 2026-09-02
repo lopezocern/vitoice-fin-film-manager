@@ -17,10 +17,11 @@ export interface WindowLike {
   close(): Promise<void>;
   toggleMaximize?(): Promise<void>;
   unmaximize?(): Promise<void>;
-  // Tauri v2 的 setSize/setPosition 参数为 LogicalSize|PhysicalSize|Size，形状含 width/height；
-  // 用 any 放宽以兼容真实窗口对象（TopNav 用 as unknown as 转换，player 页直接传真实窗口）。
-  setSize?(size: any): Promise<void>;
-  setPosition?(pos: any): Promise<void>;
+  // Tauri v2 的 setSize/setPosition 参数为 LogicalSize|PhysicalSize|Size。
+  // 这里只声明我们实际传入的结构化形状（{width,height} / {x,y}），真实窗口
+  // 对象由调用方经 `as unknown as WindowLike` 适配（TopNav、player 页）。
+  setSize?(size: { width: number; height: number }): Promise<void>;
+  setPosition?(pos: { x: number; y: number }): Promise<void>;
   outerSize?(): Promise<WinSize>;
   outerPosition?(): Promise<WinPos>;
 }
