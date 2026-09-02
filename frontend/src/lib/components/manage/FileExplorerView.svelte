@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { page } from '$app/stores';
   import { librariesApi, type Library } from '$lib/api/libraries';
   import { librariesStore } from '$lib/stores/libraries.svelte';
   import DirectoryTree from '$lib/components/layout/DirectoryTree.svelte';
   import MediaManageView from '$lib/components/manage/MediaManageView.svelte';
+  import { createAsyncCleanup } from '$lib/utils/asyncCleanup';
+  import { realQueryParam } from '$lib/utils/urlState';
+  import { liveQueryParam } from '$lib/stores/urlState.svelte';
 
   let libraries = $state<Library[]>([]);
   let selectedLibraryId = $state('');
@@ -17,7 +19,8 @@
   const currentLibrary = $derived(libraries.find((lib) => lib.id === selectedLibraryId) ?? null);
   const canImport = $derived(!!currentLibrary);
   /** 目录树当前选中目录（URL dir 参数）：新建文件夹/导入文件以它为目标目录 */
-  const currentDir = $derived($page.url.searchParams.get('dir') ?? '');
+  // 用 liveQueryParam 而非 $page.url：popstate 重挂载时 page store 丢 query，dir 变空
+  const currentDir = $derived(liveQueryParam('dir') ?? '');
 
   function showToast(message: string, type: 'ok' | 'error' = 'ok'): void {
     toast = { message, type };
@@ -29,7 +32,8 @@
     try {
       const loaded = await librariesApi.list(true);
       libraries = loaded;
-      const urlLib = $page.url.searchParams.get('lib') ?? '';
+      // 一次性读取：以真实 location 为准（$page.url 在 popstate 后可能丢 query）
+      const urlLib = realQueryParam('lib') ?? '';
       selectedLibraryId = urlLib && loaded.some((lib) => lib.id === urlLib) ? urlLib : (loaded[0]?.id ?? '');
     } catch {
       showToast('资源库列表加载失败，请检查后端服务', 'error');
@@ -38,7 +42,8 @@
 
   // 目录树通过 URL（lib/dir）导航；同步当前库以驱动头部按钮状态
   $effect(() => {
-    const urlLib = $page.url.searchParams.get('lib') ?? '';
+    // effect 内一次性读取真实 URL 即可，无需响应式
+    const urlLib = realQueryParam('lib') ?? '';
     if (urlLib && libraries.some((lib) => lib.id === urlLib)) selectedLibraryId = urlLib;
   });
 
@@ -46,10 +51,14 @@
     void loadLibraries();
     // 拖拽监听只挂在管理页组件生命周期内：离开页面自动注销，其他页面不受影响
     if (!isTauri) return;
-    let unlisten: (() => void) | null = null;
+    // createAsyncCleanup 防止竞态：onDragDropEvent 是 async 的，若在 await 期间
+    // 卸载，旧写法的 cleanup 拿到 null，之后注册的监听永久挂在 webview 上，
+    // 每次进出管理页就多叠一份回调。
+    const ac = createAsyncCleanup();
     (async () => {
       const { getCurrentWebview } = await import('@tauri-apps/api/webview');
-      unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+      ac.set(
+        await getCurrentWebview().onDragDropEvent((event) => {
         const p = event.payload;
         if (p.type === 'enter' || p.type === 'over') {
           dragging = true;
@@ -83,10 +92,11 @@
           dragging = false;
           clearHover();
         }
-      });
+        })
+      );
     })();
     return () => {
-      unlisten?.();
+      ac.dispose();
       clearHover();
     };
   });

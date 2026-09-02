@@ -25,6 +25,7 @@ from app.schemas.batch import (
     BatchActionResponse,
     BatchFailedItem,
 )
+from app.services.media_access import get_accessible_media
 from app.services.restricted import get_restricted_library_ids
 
 logger = logging.getLogger("vitoice.batch")
@@ -690,14 +691,18 @@ async def _batch_worker(task_id: int, media_ids: list[int], action: str) -> str:
     for i, media_id in enumerate(media_ids):
         try:
             async with async_session() as db:
-                # Skip soft-deleted and metadata-ignored items (they must not
-                # be scraped / re-thumbnailed from the recycle bin).
-                media = await db.get(Media, media_id)
-                if not media:
-                    failed.append({"id": media_id, "error": "Media not found"})
-                    continue
-                if media.is_deleted:
-                    failed.append({"id": media_id, "error": "已在回收站"})
+                # Gate: skip soft-deleted, restricted-library and
+                # metadata-ignored items. Previously only is_deleted was
+                # checked, so batch scrape/thumbnail could still touch
+                # restricted libraries with the switch turned off.
+                # The gate raises 404; convert it to a per-item failure so a
+                # single bad id does not abort the whole batch.
+                try:
+                    media = await get_accessible_media(db, media_id)
+                except HTTPException as exc:
+                    failed.append(
+                        {"id": media_id, "error": exc.detail or "Media not found"}
+                    )
                     continue
                 if action == "scrape" and media.metadata_ignored:
                     failed.append({"id": media_id, "error": "已被用户忽略元数据"})
@@ -712,8 +717,9 @@ async def _batch_worker(task_id: int, media_ids: list[int], action: str) -> str:
                     else:
                         success.append(media_id)
                 elif action == "thumbnail":
-                    media = await db.get(Media, media_id)
-                    if media and media.file_path:
+                    # `media` already loaded and gated above — the second
+                    # db.get() was redundant.
+                    if media.file_path:
                         from app.config import settings
                         import os
 

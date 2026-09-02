@@ -5,11 +5,12 @@
    * 进度仍写后端 /media/{id}/progress，主播放器下次打开自动续上。
    */
   import { onMount } from 'svelte';
-  import { page } from '$app/stores';
   import { client } from '$lib/api/client';
   import { mediaApi } from '$lib/api/media';
+  import { realQueryParam } from '$lib/utils/urlState';
 
-  const mediaId = $derived($page.url.searchParams.get('id') ?? '');
+  // 读 window.location 而非 $page.url：popstate 重挂载时 page store 会丢 query。
+  const mediaId = realQueryParam('id') ?? '';
 
   let videoEl: HTMLVideoElement | null = $state(null);
   let title = $state('');

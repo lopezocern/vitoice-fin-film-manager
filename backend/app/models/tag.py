@@ -36,6 +36,12 @@ class TagType(Base):
 class Tag(Base):
     """Individual tag — belongs to a TagType, supports hierarchy."""
     __tablename__ = "tags"
+    # A name is unique *within a tag type*, not globally: the same performer
+    # legitimately exists as both an `actor` and an `av_actress` tag (18 such
+    # cross-type pairs exist in the dev database). See migration 020.
+    __table_args__ = (
+        UniqueConstraint("name", "tag_type_id", name="uq_tags_name_type"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)

@@ -2,7 +2,7 @@
   // 资源库配置页：管理所有资源库
   // 后端 LibraryResponse 含完整字段（type / scrape_mode / watch_enabled / media_count）
   // 使用 client 直接获取完整数据（前端 libraries.ts 接口较精简）
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { client, ApiError } from '$lib/api/client';
   import { librariesApi } from '$lib/api/libraries';
@@ -76,6 +76,13 @@
     for (const id of scanTimers) clearTimeout(id);
     scanTimers.clear();
   }
+
+  // clearScanTimers 此前定义了却从未调用：扫描中离开本页，轮询定时器会继续
+  // 触发并写已销毁组件的 $state。
+  onDestroy(() => {
+    clearScanTimers();
+    if (toastTimer) clearTimeout(toastTimer);
+  });
 
   const scrapeLabels: Record<string, string> = {
     none: '不刮削',

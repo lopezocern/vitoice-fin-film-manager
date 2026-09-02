@@ -2,7 +2,7 @@
   // 快速打标弹窗：从 tagsApi.list() 加载标签（含 tag_type_id 与 children），
   // 扁平化后按类型分组、支持搜索与多选；确认后对每个标签调用
   // POST /media/{mediaId}/tags { tag_id }（409 重复自动跳过）。
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { client } from '$lib/api/client';
   import { tagsApi } from '$lib/api/tags';
 
@@ -121,6 +121,26 @@
     }
   });
 
+  // 提交成功后延迟 900ms 自动关闭。若在窗口期内组件已卸载（用户按 ESC 或
+  // 退出播放器），回调仍会触发 onClose —— 持句柄并在 onDestroy 清理。
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** 统一关闭入口：清掉待触发的自动关闭，避免二次回调 */
+  function close(): void {
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+    onClose?.();
+  }
+
+  onDestroy(() => {
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+  });
+
   function toggle(id: number): void {
     const next = new Set(selected);
     if (next.has(id)) next.delete(id);
@@ -149,13 +169,17 @@
     submitting = false;
     resultMsg = `已添加 ${added} 个标签${skipped ? `（${skipped} 个已存在）` : ''}`;
     onDone?.(added);
-    setTimeout(() => onClose?.(), 900);
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      onClose?.();
+    }, 900);
   }
 
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
       e.preventDefault();
-      onClose?.();
+      close();
     }
   }
 </script>
@@ -164,7 +188,7 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="overlay" onclick={onClose} role="presentation">
+  <div class="overlay" onclick={close} role="presentation">
     <!-- svelte-ignore a11y_interactive_supports_focus a11y_click_events_have_key_events -->
     <div
       class="dialog"
@@ -176,7 +200,7 @@
     >
       <div class="head">
         <h3>快速打标</h3>
-        <button class="x" onclick={onClose} aria-label="关闭">×</button>
+        <button class="x" onclick={close} aria-label="关闭">×</button>
       </div>
 
       <div class="search">
@@ -233,7 +257,7 @@
       {/if}
 
       <div class="actions">
-        <button class="btn ghost" onclick={onClose} disabled={submitting} type="button">取消</button>
+        <button class="btn ghost" onclick={close} disabled={submitting} type="button">取消</button>
         <button class="btn primary" onclick={confirm} disabled={!selected.size || submitting} type="button">
           {submitting ? '添加中…' : `添加 ${selected.size || ''} 个标签`.trim()}
         </button>

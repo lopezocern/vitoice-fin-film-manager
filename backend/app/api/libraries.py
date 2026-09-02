@@ -36,6 +36,38 @@ async def _get_library_or_404(db: AsyncSession, library_id: int) -> MediaLibrary
     return lib
 
 
+def _normalize_dir_path(raw: str) -> str:
+    """Canonical form of a directory path for equality comparison.
+
+    Folds case and normalizes separators/trailing slashes so that
+    ``C:\\Media\\`` and ``c:/media`` compare equal. Needed because stored
+    root_path values predate any normalization.
+    """
+    try:
+        return os.path.normcase(os.path.normpath(os.path.abspath(raw)))
+    except (OSError, ValueError):
+        return os.path.normcase(str(raw).rstrip("\\/"))
+
+
+async def _find_library_by_root_path(
+    db: AsyncSession, root_path: str, *, exclude_id: int | None = None
+) -> MediaLibrary | None:
+    """Return the library already managing `root_path`, if any.
+
+    Compares normalized paths rather than relying on exact string equality —
+    libraries are few (well under a hundred), so scanning them in Python is
+    cheaper than the false negatives an exact match would produce.
+    """
+    target = _normalize_dir_path(root_path)
+    result = await db.execute(select(MediaLibrary))
+    for lib in result.scalars().all():
+        if exclude_id is not None and lib.id == exclude_id:
+            continue
+        if _normalize_dir_path(lib.root_path) == target:
+            return lib
+    return None
+
+
 async def _count_media(db: AsyncSession, library_id: int) -> int:
     result = await db.execute(
         select(func.count(Media.id)).where(Media.library_id == library_id)
@@ -130,6 +162,17 @@ async def get_library(library_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=LibraryResponse, status_code=201)
 async def create_library(payload: LibraryCreate, db: AsyncSession = Depends(get_db)):
+    # Reject a duplicate root_path before hitting the DB constraint: the
+    # IntegrityError would surface as a 500, while this is a user error.
+    # Registering the same directory twice would double-scan it into
+    # duplicate media rows.
+    duplicate = await _find_library_by_root_path(db, payload.root_path)
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"该目录已被媒体库「{duplicate.name}」管理，不能重复添加",
+        )
+
     lib = MediaLibrary(**payload.model_dump())
     db.add(lib)
     await db.commit()
@@ -144,6 +187,15 @@ async def update_library(
 ):
     lib = await _get_library_or_404(db, library_id)
     data = payload.model_dump(exclude_unset=True)
+    if "root_path" in data and data["root_path"]:
+        duplicate = await _find_library_by_root_path(
+            db, data["root_path"], exclude_id=library_id
+        )
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"该目录已被媒体库「{duplicate.name}」管理，不能重复添加",
+            )
     for key, value in data.items():
         setattr(lib, key, value)
     await db.commit()

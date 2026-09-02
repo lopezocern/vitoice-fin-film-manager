@@ -26,6 +26,10 @@ from app.models.enums import TaskPriority, MediaType
 
 logger = logging.getLogger("vitoice.file_watcher")
 
+# Max seconds to wait for an observer thread to exit. Bounded so shutdown or
+# watch removal can never hang on a stuck event handler.
+_JOIN_TIMEOUT = 5.0
+
 # Debounce: batch rapid changes before triggering full scan
 DEBOUNCE_SECONDS = 2.0
 # Wait time after last modification before considering file "stable" (copy complete)
@@ -750,9 +754,16 @@ class FileWatcherService:
 
     async def stop(self) -> None:
         """Stop all watchers."""
-        for observer in self._observers.values():
+        observers = list(self._observers.values())
+        for observer in observers:
             observer.stop()
-            observer.join()
+        # join() blocks. Offload it and bound it: a handler stuck on slow I/O
+        # (e.g. an ffprobe of a network path) would otherwise freeze the whole
+        # event loop — including /health — during shutdown. Observer threads
+        # are daemons, so one that outlives the timeout dies with the process.
+        await asyncio.gather(
+            *(asyncio.to_thread(o.join, _JOIN_TIMEOUT) for o in observers)
+        )
         self._observers.clear()
 
     async def add_watch(self, library_id: int, name: str, root_path: str) -> None:
@@ -775,9 +786,10 @@ class FileWatcherService:
     async def remove_watch(self, library_id: int) -> None:
         """Remove a watch."""
         if library_id in self._observers:
-            self._observers[library_id].stop()
-            self._observers[library_id].join()
-            del self._observers[library_id]
+            observer = self._observers.pop(library_id)
+            observer.stop()
+            # Same reasoning as stop(): never block the event loop on join().
+            await asyncio.to_thread(observer.join, _JOIN_TIMEOUT)
 
 
 # Global instance

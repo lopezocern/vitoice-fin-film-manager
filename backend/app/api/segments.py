@@ -4,9 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.media import Media
 from app.models.segment import Segment
 from app.schemas.segment import SegmentCreate, SegmentResponse, SegmentUpdate
+from app.services.media_access import get_accessible_media
 
 router = APIRouter(tags=["segments"])
 
@@ -14,9 +14,8 @@ router = APIRouter(tags=["segments"])
 @router.get("/media/{media_id}/segments", response_model=list[SegmentResponse])
 async def list_segments(media_id: int, db: AsyncSession = Depends(get_db)):
     """List all segments for a media item, ordered by start_time."""
-    media = await db.get(Media, media_id)
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
+    # Gate: soft-deleted rows and restricted libraries must not be reachable.
+    await get_accessible_media(db, media_id)
     result = await db.execute(
         select(Segment)
         .where(Segment.media_id == media_id)
@@ -32,9 +31,7 @@ async def create_segment(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new segment (time-point marker) for a media item."""
-    media = await db.get(Media, media_id)
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
+    await get_accessible_media(db, media_id)
     data = payload.model_dump()
     data["media_id"] = media_id
     segment = Segment(**data)

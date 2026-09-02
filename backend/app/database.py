@@ -29,6 +29,30 @@ engine = create_async_engine(
 )
 
 
+def apply_sqlite_pragmas(cursor, *, foreign_keys: bool = True) -> None:
+    """Apply the project's standard SQLite pragmas to an open cursor.
+
+    Shared by the engine's connect listener and by the test fixtures, so tests
+    run under the same constraints as production (previously the fixtures built
+    their own engine and silently ran with foreign_keys=OFF).
+
+    Args:
+        cursor: an open DBAPI cursor.
+        foreign_keys: set to False for schema-rebuilding contexts (Alembic
+            batch_alter requires foreign_keys=OFF while a table is recreated).
+    """
+    # Foreign key enforcement. SQLite defaults this to OFF **per connection**,
+    # which silently disabled every `ondelete="CASCADE"` / `"SET NULL"`
+    # declared on the models — only the ORM-level cascade fired, and bulk
+    # `delete()` statements bypassed it entirely.
+    if foreign_keys:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA busy_timeout=30000")  # 30s
+    cursor.execute("PRAGMA wal_autocheckpoint=1000")  # checkpoint every 1000 pages
+
+
 # Enable WAL mode and tune pragmas for better concurrency on SQLite.
 # WAL allows readers to proceed concurrently with a single writer.
 @event.listens_for(engine.sync_engine, "connect")
@@ -40,10 +64,7 @@ def _set_sqlite_pragma(dbapi_conn, connection_record):  # noqa: D401
     # (cursor() + execute) instead of isinstance to handle both cases.
     cursor = dbapi_conn.cursor()
     try:
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA busy_timeout=30000")  # 30s
-        cursor.execute("PRAGMA wal_autocheckpoint=1000")  # checkpoint every 1000 pages
+        apply_sqlite_pragmas(cursor)
     finally:
         cursor.close()
 
@@ -106,6 +127,98 @@ def _ensure_additive_columns(sync_conn) -> None:
             logger.info("Auto-added missing column %s.%s", table.name, col.name)
 
 
+# Unique indexes that must exist on every database, old or new.
+#
+# Why this is not handled by Alembic alone: the packaged app ships without
+# alembic, and the production database has no `alembic_version` table at all —
+# its schema is maintained by `create_all()` + `_ensure_additive_columns()`.
+# `create_all()` never alters an existing table, so a constraint added to a
+# model would silently be missing from every already-created database.
+#
+# These mirror migration 020; both paths are idempotent and converge.
+_REQUIRED_UNIQUE_INDEXES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("uq_tags_name_type", "tags", ("name", "tag_type_id")),
+    ("uq_media_libraries_root_path", "media_libraries", ("root_path",)),
+)
+
+
+def _existing_unique_column_sets(sync_conn, table: str) -> set[frozenset[str]]:
+    """Return the column sets already covered by a UNIQUE index on `table`.
+
+    Uses PRAGMA rather than SQLAlchemy's inspector because the latter omits
+    SQLite's implicit `sqlite_autoindex_*` entries, which are exactly the ones
+    Alembic's `create_unique_constraint` leaves behind.
+    """
+    sets: set[frozenset[str]] = set()
+    try:
+        indexes = sync_conn.exec_driver_sql(
+            f'PRAGMA index_list("{table}")'
+        ).fetchall()
+    except Exception:  # noqa: BLE001 — table vanished / not SQLite
+        return sets
+
+    for row in indexes:
+        # PRAGMA index_list -> (seq, name, unique, origin, partial)
+        name, is_unique = row[1], row[2]
+        if not is_unique or not name:
+            continue
+        try:
+            cols = [
+                r[2]
+                for r in sync_conn.exec_driver_sql(
+                    f'PRAGMA index_info("{name}")'
+                ).fetchall()
+            ]
+        except Exception:  # noqa: BLE001
+            continue
+        if cols:
+            sets.add(frozenset(cols))
+    return sets
+
+
+def _ensure_unique_constraints(sync_conn) -> None:
+    """Idempotently create the unique indexes the models declare.
+
+    A failure here must never prevent startup: duplicate rows can exist in
+    databases created before the constraint, and forcing the issue would brick
+    the app. Log loudly instead so the condition is visible.
+    """
+    import logging
+    from sqlalchemy import inspect as sa_inspect
+
+    logger = logging.getLogger("vitoice")
+    inspector = sa_inspect(sync_conn)
+    existing_tables = set(inspector.get_table_names())
+
+    for index_name, table, columns in _REQUIRED_UNIQUE_INDEXES:
+        if table not in existing_tables:
+            continue
+        # Match on the *column set*, not the index name. Alembic's
+        # create_unique_constraint produces an implicit `sqlite_autoindex_*`
+        # whose name differs from ours while enforcing the same rule — keying
+        # on the name would create a redundant duplicate index.
+        if frozenset(columns) in _existing_unique_column_sets(sync_conn, table):
+            continue
+
+        cols = ", ".join(f'"{c}"' for c in columns)
+        ddl = (
+            f'CREATE UNIQUE INDEX IF NOT EXISTS "{index_name}" '
+            f'ON "{table}" ({cols})'
+        )
+        try:
+            sync_conn.exec_driver_sql(ddl)
+            logger.info("Created unique index %s on %s", index_name, table)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Could not create unique index %s on %s (%s). "
+                "Existing duplicate rows must be merged manually — see "
+                "backend/tools/check_orphans.py for a duplicate scanner.",
+                index_name,
+                table,
+                exc,
+            )
+
+
 async def init_db() -> None:
     """Ensure database is ready.
 
@@ -137,3 +250,5 @@ async def init_db() -> None:
 
         # Backfill nullable columns onto existing tables (idempotent).
         await conn.run_sync(_ensure_additive_columns)
+        # Backfill unique indexes declared on the models (idempotent).
+        await conn.run_sync(_ensure_unique_constraints)

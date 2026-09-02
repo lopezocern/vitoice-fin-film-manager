@@ -111,6 +111,9 @@ def _generate_thumbnail_sync(
     ffmpeg_exe = get_ffmpeg()
 
     def _run_one(off: float, dest: str) -> bool:
+        # Note on `-i file_path`: it follows the `-i` flag, so ffmpeg treats it
+        # as that option's value — a leading "-" cannot be misparsed there.
+        # The trailing `--` guards the *output* name, which is positional.
         cmd = [
             ffmpeg_exe,
             "-ss", str(off),
@@ -119,6 +122,7 @@ def _generate_thumbnail_sync(
             "-vf", f"scale={thumb_size}:-2",  # -2 ensures even dimensions
             "-q:v", str(max(2, min(31, 31 - thumb_quality * 29 // 100))),
             "-y",
+            "--",
             dest,
         ]
         try:

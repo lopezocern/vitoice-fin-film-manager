@@ -3,9 +3,9 @@
   // 后端 GET /settings 返回 [{id, key, value, type, category, description, updated_at}]
   // PUT /settings {settings:[{key,value}]} 批量更新
   import { onMount, onDestroy } from 'svelte';
-  import { page } from '$app/stores';
   import { client, ApiError } from '$lib/api/client';
   import { settingsStore } from '$lib/stores/settings.svelte';
+  import { liveQueryParam } from '$lib/stores/urlState.svelte';
   import SourceManager from '$lib/components/settings/SourceManager.svelte';
   import { openExternalUrl, isTauriEnv } from '$lib/utils/network-media';
 
@@ -412,7 +412,9 @@
   // ---- 状态 ----
   let activeCategory = $state('appearance');
   $effect(() => {
-    const cat = $page.url.searchParams.get('cat');
+    // 用 liveQueryParam 而非 $page.url：popstate 重挂载时 page store 只恢复 pathname、
+    // 丢掉 query，cat 会退回默认值并被这里写回 URL，覆盖刚返回的历史条目。
+    const cat = liveQueryParam('cat');
     if (cat && categories.some((c) => c.id === cat)) {
       activeCategory = cat;
     }

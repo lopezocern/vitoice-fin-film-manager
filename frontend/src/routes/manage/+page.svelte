@@ -13,7 +13,7 @@
   //   - TagsManageView.svelte  标签管理
   //   - RecycleBinView.svelte  回收站
 
-  import { page as pageStore } from '$app/stores';
+  import { liveQueryParam } from '$lib/stores/urlState.svelte';
   import OverviewView from '$lib/components/manage/OverviewView.svelte';
   import FileExplorerView from '$lib/components/manage/FileExplorerView.svelte';
   import ManageModuleView from '$lib/components/manage/ManageModuleView.svelte';
@@ -21,8 +21,10 @@
   import RecycleBinView from '$lib/components/manage/RecycleBinView.svelte';
 
   type ManageSection = 'dashboard' | 'files' | 'issues' | 'assets' | 'metadata' | 'tags' | 'trash' | 'tasks' | 'history' | 'libraries';
+  // 用 liveQueryParam 而非 $pageStore.url：popstate 重挂载时只恢复 pathname、丢 query，
+  // section 会退回 files 并被写回 URL，覆盖刚返回的历史条目。
   const currentSection = $derived.by((): ManageSection => {
-    const section = $pageStore.url.searchParams.get('section');
+    const section = liveQueryParam('section');
     if (section === 'overview') return 'dashboard';
     if (section === 'recycle') return 'trash';
     // 媒体资产已并入媒体管理：?section=assets 与 ?tab=media 都进入 files（默认媒体资产视图）
@@ -30,7 +32,7 @@
     if (section === 'dashboard' || section === 'files' || section === 'issues' || section === 'metadata' || section === 'tags' || section === 'trash' || section === 'tasks' || section === 'history' || section === 'libraries') {
       return section;
     }
-    const tab = $pageStore.url.searchParams.get('tab');
+    const tab = liveQueryParam('tab');
     if (tab === 'tags') return 'tags';
     if (tab === 'recycle') return 'trash';
     return 'files';

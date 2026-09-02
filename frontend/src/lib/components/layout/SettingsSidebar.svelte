@@ -2,10 +2,13 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { sidebar } from '$lib/stores/sidebar.svelte';
+  import { liveQueryParam } from '$lib/stores/urlState.svelte';
 
   const collapsed = $derived(sidebar.collapsed);
   const pathname = $derived($page.url.pathname);
-  const catParam = $derived($page.url.searchParams.get('cat'));
+  // 不能用 $page.url.searchParams：popstate 重挂载时 page store 只恢复 pathname、
+  // 丢失 query，侧栏高亮会跳回默认项。liveQueryParam 读 window.location（真值）。
+  const catParam = $derived(liveQueryParam('cat'));
 
   type SettingsEntry = { id: string; label: string; href: string; icon: string };
 

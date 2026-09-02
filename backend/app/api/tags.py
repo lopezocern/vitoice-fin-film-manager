@@ -20,6 +20,7 @@ from app.schemas.tag import (
     VideoTagCreate,
     VideoTagResponse,
 )
+from app.services.media_access import get_accessible_media
 from app.services.restricted import get_restricted_library_ids, should_hide_restricted
 
 router = APIRouter(tags=["tags"])
@@ -226,6 +227,19 @@ async def create_tag(payload: TagCreate, db: AsyncSession = Depends(get_db)):
             await db.flush()
         data["tag_type_id"] = tag_type.id
 
+    # (name, tag_type_id) is unique (migration 020). Returning the existing
+    # tag keeps this endpoint idempotent, which matters because tagging flows
+    # create tags concurrently and a 409 there would surface as a UI error.
+    existing = (
+        await db.execute(
+            select(Tag).where(
+                Tag.name == data["name"], Tag.tag_type_id == data["tag_type_id"]
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
     tag = Tag(**data)
     db.add(tag)
     await db.flush()
@@ -244,9 +258,9 @@ async def suggest_tags(
     the provider returns nothing. Never raises on provider errors so the
     frontend can degrade gracefully.
     """
-    media = await db.get(Media, media_id)
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
+    # Gate: AI suggestion must not run against restricted / soft-deleted media
+    # (it uploads the title/filename to an external provider).
+    await get_accessible_media(db, media_id)
 
     from app.services.ai_tagger import suggest_tags_for_media
 
@@ -295,9 +309,7 @@ async def tag_media(
     db: AsyncSession = Depends(get_db),
 ):
     """Attach a tag to a media item."""
-    media = await db.get(Media, media_id)
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
+    await get_accessible_media(db, media_id)
     tag = await db.get(Tag, payload.tag_id)
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")

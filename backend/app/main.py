@@ -3,6 +3,7 @@
 Binds to 127.0.0.1 by default (local desktop app).
 Set VITOICE_HOST=0.0.0.0 only if you need network access.
 """
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
@@ -10,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import init_db
+
+logger = logging.getLogger("vitoice")
 
 
 @asynccontextmanager
@@ -40,8 +43,16 @@ async def lifespan(app: FastAPI):
             try:
                 if not has_backup_today():
                     await asyncio.to_thread(run_backup_now, "scheduled")
+            except asyncio.CancelledError:
+                raise
             except Exception:  # noqa: BLE001 — backup must never kill the app
-                pass
+                # Swallowing this silently meant a broken backup was
+                # indistinguishable from a working one; log it so the failure
+                # is at least visible in the backend log.
+                logger.exception(
+                    "Scheduled backup failed; will retry in 6h. "
+                    "Data safety depends on this — check the data root is writable."
+                )
             await asyncio.sleep(6 * 3600)
 
     backup_task = asyncio.create_task(_backup_loop())

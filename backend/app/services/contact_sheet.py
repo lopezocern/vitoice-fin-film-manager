@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import subprocess
+import uuid
 from pathlib import Path
 
 from app.config import settings
@@ -43,13 +44,17 @@ def _extract_and_compose_sync(
 
     total = GRID_COLS * GRID_ROWS
     tmp_paths: list[Path] = []
+    # Unique per invocation. Previously the temp name used os.getpid(), so two
+    # concurrent requests for the *same* media collided — each deleted the
+    # other's frames mid-run and the sheet came out with black cells.
+    run_id = uuid.uuid4().hex[:8]
 
     try:
         # 1) Extract frames — each into its own temp file so a failed seek
         #    just leaves one black cell instead of corrupting the whole sheet.
         for i in range(total):
             offset = duration * (i + 0.5) / total
-            tmp = out_dir / f".cs_{os.getpid()}_{Path(output_path).stem}_{i}.jpg"
+            tmp = out_dir / f".cs_{run_id}_{Path(output_path).stem}_{i}.jpg"
             tmp_paths.append(tmp)
             if tmp.is_file():
                 try:
@@ -68,6 +73,7 @@ def _extract_and_compose_sync(
                 ),
                 "-q:v", "3",
                 "-y",
+                "--",  # output name is positional; guard against a leading "-"
                 str(tmp),
             ]
             try:

@@ -8,6 +8,8 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { sidebar } from '$lib/stores/sidebar.svelte';
+  import { liveQueryParam } from '$lib/stores/urlState.svelte';
+  import { realSearchParams } from '$lib/utils/urlState';
   import { client } from '$lib/api/client';
 
   type ManageSection =
@@ -63,7 +65,9 @@
   // 详情页 /detail/[id] 没有 tab 参数时，使用上次记住的 tab（保持侧边栏状态一致）
   let lastManageTab = $state<'media' | 'tags' | 'recycle'>('media');
   let lastManageSection = $state<ManageSection>('files');
-  const tabParam = $derived($page.url.searchParams.get('tab') as 'media' | 'tags' | 'recycle' | null);
+  // 用 liveQueryParam 而非 $page.url：popstate 重挂载时 page store 丢 query，
+  // tab 会变 null 并被下面的 effect 固化成错误的记忆值。
+  const tabParam = $derived(liveQueryParam('tab') as 'media' | 'tags' | 'recycle' | null);
   // 有 tab 参数时记住它（在 $effect 中安全更新 $state）
   $effect(() => {
     if (tabParam) {
@@ -73,7 +77,8 @@
   });
   // 详情页等无 tab 参数的路由：使用上次记住的值
   const manageTab = $derived(tabParam ?? lastManageTab);
-  const sectionParam = $derived($page.url.searchParams.get('section'));
+  // 同上：section 必须从真实 URL 读，否则返回的分区会被记忆成错误的默认值。
+  const sectionParam = $derived(liveQueryParam('section'));
   $effect(() => {
     const normalized = sectionParam === 'overview' ? 'dashboard' : sectionParam === 'recycle' ? 'trash' : sectionParam;
     if (normalized && ['dashboard', 'files', 'issues', 'assets', 'metadata', 'tags', 'trash', 'tasks', 'history', 'libraries'].includes(normalized)) {
@@ -86,6 +91,7 @@
       ? sectionParam as ManageSection
       : tabParam
         ? (manageTab === 'tags' ? 'tags' : manageTab === 'recycle' ? 'trash' : 'assets')
+        // pathname 不受影响：popstate 下 page store 只丢 query，pathname 仍是真实值
         : $page.url.pathname.startsWith('/manage') ? 'files' : lastManageSection
   );
 
@@ -95,10 +101,12 @@
 
   // ---- 来源筛选（仅 media tab） ----
   // source 参数值: '' (全部) | 'local' | 'network' | 'missing'
-  const sourceFilter = $derived($page.url.searchParams.get('source') || '');
+  // 来源筛选同样从真实 URL 读，避免返回后筛选高亮丢失
+  const sourceFilter = $derived(liveQueryParam('source') || '');
 
   function setSourceFilter(value: string): void {
-    const params = new URLSearchParams($page.url.searchParams);
+    // 以真实 location 为基准合并参数（$page.url 在 popstate 后可能已丢 query）
+    const params = realSearchParams();
     if (value) {
       params.set('source', value);
     } else {

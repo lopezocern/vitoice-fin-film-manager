@@ -63,4 +63,7 @@ doc/               # 设计文档与审计报告
 ## 安全说明
 
 - 仓库不含任何密钥/令牌；本地脚本如需调用外部 API，请将 key 放入 `.env` 或被 `.gitignore` 忽略的 `*.local.ps1`
+- `generate_image_makabaka.ps1` 从环境变量 `MAKABAKA_API_KEY` 读取密钥，不硬编码
 - 受限内容（AV 库）默认隐藏，由「显示限制内容」开关 + 网络源开关双重门控
+
+> **历史遗留（2026-09-02 已处置）**：早期版本曾把 makabaka API key 硬编码进 `generate_image_makabaka.ps1` 并提交，后经 `filter-branch` 重写历史，但 `refs/original/*` 备份引用未清除，导致含密钥的 blob 长期滞留在本地 `.git` 中。现已删除备份引用并执行 `reflog expire` + `gc`，对象库已无该 blob。**若你曾 clone 过本仓库，请视为该 key 已泄漏并到服务商处吊销。**

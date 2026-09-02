@@ -23,10 +23,16 @@ set "ROOT=%cd%"
 set "T0=%time%"
 
 rem ---- build environment (mirrors dev.ps1) ----
-set "TOOLCHAIN=C:\Users\Administrator\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin"
-set "PATH=%TOOLCHAIN%;C:\Users\Administrator\.cargo\bin;%PATH%"
-set "CARGO_HOME=C:\Users\Administrator\.cargo"
-set "RUSTUP_HOME=C:\Users\Administrator\.rustup"
+rem Derived from %USERPROFILE% instead of a hardcoded C:\Users\<name> so the
+rem script works on any machine / any Windows account.
+if not defined USERPROFILE (
+    echo [ERROR] %%USERPROFILE%% is not set - cannot locate the Rust toolchain.
+    goto :fail
+)
+set "TOOLCHAIN=%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin"
+set "PATH=%TOOLCHAIN%;%USERPROFILE%\.cargo\bin;%PATH%"
+set "CARGO_HOME=%USERPROFILE%\.cargo"
+set "RUSTUP_HOME=%USERPROFILE%\.rustup"
 set "HTTP_PROXY="
 set "HTTPS_PROXY="
 set "http_proxy="

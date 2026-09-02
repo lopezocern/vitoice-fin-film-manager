@@ -5,11 +5,11 @@
    * menu for files: rename, rename + re-scrape, and re-scrape.
    */
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
   import { untrack } from 'svelte';
   import { librariesApi, type Library, type TreeNode } from '$lib/api/libraries';
   import { mediaApi } from '$lib/api/media';
   import { formatSize } from '$lib/utils/format';
+  import { liveQueryParam } from '$lib/stores/urlState.svelte';
 
   interface Props {
     libraries: Library[];
@@ -19,12 +19,14 @@
   let { libraries, collapsed }: Props = $props();
 
   // ---- 当前选中的库/目录（从 URL 读取，用于高亮选中项） ----
-  const selectedLib = $derived($page.url.searchParams.get('lib') || '');
+  // 用 liveQueryParam 而非 $page.url：popstate 重挂载时 page store 丢 query，
+  // 高亮的库/目录会退回空值。
+  const selectedLib = $derived(liveQueryParam('lib') || '');
   const selectedDir = $derived.by(() => {
-    const dir = $page.url.searchParams.get('dir');
+    const dir = liveQueryParam('dir');
     return dir || '';
   });
-  const currentManageSection = $derived($page.url.searchParams.get('section') || 'assets');
+  const currentManageSection = $derived(liveQueryParam('section') || 'assets');
 
   function gotoDirectory(libId: string, relPath = ''): void {
     const section = currentManageSection === 'files' ? 'files' : 'assets';

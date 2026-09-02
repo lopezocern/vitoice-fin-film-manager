@@ -3,29 +3,37 @@ name = "vitoice-fin-backend"
 version = "0.1.0"
 description = "vitoice Phase 3.0 backend - desktop media asset management"
 requires-python = ">=3.11"
+# 版本策略：下限 = 实测可用版本，上限 = 下一个主版本（不含）。
+# 本后端以 PyInstaller 冻结进安装包，构建机上解析出的版本若与实测版本
+# 跨主版本，冻结产物会在用户机器上崩且无法热修，因此必须封顶。
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",
-    "sqlalchemy[asyncio]>=2.0.30",
-    "aiosqlite>=0.20.0",
-    "alembic>=1.13.0",
-    "pydantic>=2.7.0",
-    "pydantic-settings>=2.3.0",
-    "python-multipart>=0.0.9",
-    "httpx>=0.27.0",
-    "Pillow>=10.3.0",
-    "numpy>=1.26.0",
-    "imagehash>=4.3.0",
-    "curl-cffi>=0.7.0",
-    "watchdog>=4.0.0",
+    "fastapi>=0.115.0,<1.0",
+    "uvicorn[standard]>=0.30.0,<1.0",
+    "sqlalchemy[asyncio]>=2.0.30,<3.0",
+    "aiosqlite>=0.20.0,<1.0",
+    "alembic>=1.13.0,<2.0",
+    "pydantic>=2.7.0,<3.0",
+    "pydantic-settings>=2.3.0,<3.0",
+    "python-multipart>=0.0.9,<1.0",
+    "httpx>=0.27.0,<1.0",
+    # Pillow / numpy 每年一个主版本且会移除已弃用 API，上限按当前主版本 +1 封顶
+    "Pillow>=10.3.0,<13.0",
+    "numpy>=1.26.0,<3.0",
+    "imagehash>=4.3.0,<5.0",
+    "curl-cffi>=0.7.0,<1.0",
+    "watchdog>=4.0.0,<7.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.23.0",
-    "httpx>=0.27.0",
+    "pytest>=8.0.0,<10.0",
+    "pytest-asyncio>=0.23.0,<2.0",
+    "httpx>=0.27.0,<1.0",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["app"]

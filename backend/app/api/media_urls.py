@@ -10,6 +10,7 @@ from app.database import get_db
 from app.services.proxy import get_proxy_url
 from app.services.ssrf import validate_http_url
 from app.services.restricted import get_restricted_library_ids
+from app.services.media_access import get_accessible_media
 from app.services.assets import cleanup_asset_files
 from app.models.enums import MediaType, UrlRole
 from app.models.media import Media, MediaUrl
@@ -19,13 +20,13 @@ router = APIRouter(prefix="/media", tags=["media-urls"])
 
 
 async def _get_media_or_404(db: AsyncSession, media_id: int) -> Media:
-    media = await db.get(Media, media_id)
-    if not media or media.is_deleted:
-        raise HTTPException(status_code=404, detail="Media not found")
-    restricted_ids = await get_restricted_library_ids(db)
-    if restricted_ids and media.library_id in restricted_ids:
-        raise HTTPException(status_code=404, detail="Media not found")
-    return media
+    """Delegate to the shared access gate (see app.services.media_access).
+
+    This module previously carried its own copy of the soft-delete +
+    restricted checks. Duplicated gates drift apart, so all media resolution
+    now goes through one implementation.
+    """
+    return await get_accessible_media(db, media_id)
 
 
 @router.post("/{media_id}/urls", response_model=MediaUrlResponse, status_code=201)
@@ -208,12 +209,13 @@ async def update_url_progress(
     # Mirror the local progress endpoint (media.py): keep the Media row's
     # watch state in sync so network media also appear in "continue watching"
     # and最近播放, which sort by last_played_at.
-    media = await db.get(Media, media_id)
-    if media:
-        media.playback_position = url.played_progress
-        media.last_played_at = url.last_visited_at
-        if media.duration and url.played_progress >= media.duration * 0.95:
-            media.is_watched = True
+    # Gate: progress must not be writable (nor existence inferable) for
+    # restricted / soft-deleted media.
+    media = await get_accessible_media(db, media_id)
+    media.playback_position = url.played_progress
+    media.last_played_at = url.last_visited_at
+    if media.duration and url.played_progress >= media.duration * 0.95:
+        media.is_watched = True
     await db.flush()
 
     return {

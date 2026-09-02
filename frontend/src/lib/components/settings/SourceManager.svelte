@@ -3,7 +3,7 @@
   // Reads/writes the backend `scrape_sources` JSON setting. The av group
   // is visually flagged as adult content and only accepts html sources;
   // movie/tv groups only accept tmdb sources (backend-enforced too).
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { sourcesApi, type ScrapeSources, type ScrapeSourceItem } from '$lib/api/settingsSources';
   import { settingsStore } from '$lib/stores/settings.svelte';
 
@@ -37,6 +37,15 @@
   let testing = $state<Record<string, boolean>>({});
   let testResults = $state<Record<string, string>>({});
 
+  // "已保存"提示的自动消失定时器：组件若在 2.5s 内卸载，回调仍会写已销毁的
+  // $state。持句柄并在 onDestroy 清理，避免悬挂写入。
+  let saveMsgTimer: ReturnType<typeof setTimeout> | null = null;
+
+  onDestroy(() => {
+    if (saveMsgTimer) clearTimeout(saveMsgTimer);
+    saveMsgTimer = null;
+  });
+
   function keyOf(kind: Kind, idx: number): string {
     return `${kind}-${idx}`;
   }
@@ -60,7 +69,11 @@
       await sourcesApi.put(sources);
       dirty = false;
       saveMsg = '已保存';
-      setTimeout(() => (saveMsg = ''), 2500);
+      if (saveMsgTimer) clearTimeout(saveMsgTimer);
+      saveMsgTimer = setTimeout(() => {
+        saveMsg = '';
+        saveMsgTimer = null;
+      }, 2500);
     } catch (e) {
       const body = (e as { body?: { detail?: string } })?.body;
       saveMsg = typeof body?.detail === 'string' ? body.detail : '保存失败';

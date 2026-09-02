@@ -27,7 +27,12 @@ router = APIRouter(prefix="/recycle-bin", tags=["recycle-bin"])
 
 
 async def _get_deleted_media_or_404(db: AsyncSession, media_id: int) -> Media:
-    """Get a soft-deleted media item or 404."""
+    """Get a soft-deleted media item or 404.
+
+    Deliberately does NOT use `get_accessible_media`: the recycle bin exists
+    to operate on rows that the shared gate rejects. This is the only
+    sanctioned exception to the "no bare db.get(Media) in API code" rule.
+    """
     media = await db.get(Media, media_id)
     if not media or not media.is_deleted:
         raise HTTPException(status_code=404, detail="Media not found in recycle bin")

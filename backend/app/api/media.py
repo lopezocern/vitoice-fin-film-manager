@@ -7,8 +7,7 @@ from pathlib import Path
 import mimetypes
 import os
 import asyncio
-import subprocess
-from typing import Generator
+from collections.abc import AsyncGenerator
 
 # 注册 MKV 等常见但 mimetypes 未内置的容器格式
 mimetypes.add_type("video/x-matroska", ".mkv")
@@ -29,6 +28,7 @@ from app.models.library import MediaLibrary
 from app.models.media import Media, MediaUrl, VideoTag
 from app.models.series import Series
 from app.models.tag import Tag
+from app.services.media_access import get_accessible_media
 from app.services.restricted import get_restricted_library_ids
 from app.services.series_view import aggregate_series_response, group_equivalent_series
 from app.schemas.media import (
@@ -94,6 +94,44 @@ def _is_within_asset_root(path: str | None) -> bool:
         resolved == root or root in resolved.parents for root in _ASSET_ROOTS
     )
 
+
+# Eager-loading options for a full Media detail row (urls + segments + tags +
+# subtitles). Defined once: this exact four-way combination was copy-pasted
+# into four call sites, and every new field would otherwise need four edits.
+_MEDIA_DETAIL_LOADERS = (
+    selectinload(Media.urls),
+    selectinload(Media.segments),
+    selectinload(Media.video_tags).selectinload(VideoTag.tag),
+    selectinload(Media.subtitles),
+)
+
+
+async def _terminate_process(proc: "asyncio.subprocess.Process | None") -> None:
+    """Best-effort cleanup of a subprocess, safe to call from `finally`.
+
+    `asyncio.wait_for(proc.communicate(), timeout=N)` cancels the awaiting
+    coroutine when the timeout fires but leaves the child process running —
+    an orphaned ffprobe keeps pulling the network stream, an orphaned ffmpeg
+    keeps burning CPU. Every `wait_for` on a subprocess must be paired with
+    this in a `finally` block.
+
+    Mirrors the terminate -> wait -> kill escalation already used in
+    `_transcode_stream`.
+    """
+    if proc is None or proc.returncode is not None:
+        return
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        return
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=5)
+    except (asyncio.TimeoutError, ProcessLookupError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
 # Whitelist of columns that can be used for sorting.
 # 常见媒体扩展名 → 内容类型。用于 mime_type 缺失时按文件名兜底过滤。
 _CONTENT_TYPE_EXTS: dict[str, tuple[str, ...]] = {
@@ -145,16 +183,14 @@ async def _get_media_or_404(
     *,
     allow_deleted: bool = False,
 ) -> Media:
-    media = await db.get(Media, media_id)
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
-    if not allow_deleted and media.is_deleted:
-        raise HTTPException(status_code=404, detail="Media not found")
-    # S7: single-resource access must respect the restricted-content switch.
-    restricted_ids = await get_restricted_library_ids(db)
-    if restricted_ids and media.library_id in restricted_ids:
-        raise HTTPException(status_code=404, detail="Media not found")
-    return media
+    """Resolve a media row through the shared access gate.
+
+    Thin wrapper kept for the many call sites in this module; the gate itself
+    lives in `app.services.media_access` so every other API module can reuse
+    it. See that module's docstring for why the bare `db.get(Media, ...)`
+    form must not be used in API code.
+    """
+    return await get_accessible_media(db, media_id, allow_deleted=allow_deleted)
 
 
 @router.get("", response_model=MediaListResponse)
@@ -674,10 +710,7 @@ async def get_media(media_id: int, db: AsyncSession = Depends(get_db)):
         select(Media)
         .where(Media.id == media_id)
         .options(
-            selectinload(Media.urls),
-            selectinload(Media.segments),
-            selectinload(Media.video_tags).selectinload(VideoTag.tag),
-            selectinload(Media.subtitles),
+            *_MEDIA_DETAIL_LOADERS,
         )
     )
     result = await db.execute(query)
@@ -906,10 +939,7 @@ async def rename_media_file(
         select(Media)
         .where(Media.id == media_id)
         .options(
-            selectinload(Media.urls),
-            selectinload(Media.segments),
-            selectinload(Media.video_tags).selectinload(VideoTag.tag),
-            selectinload(Media.subtitles),
+            *_MEDIA_DETAIL_LOADERS,
         )
     )
     result_q = await db.execute(query)
@@ -993,10 +1023,7 @@ async def convert_to_network(media_id: int, db: AsyncSession = Depends(get_db)):
         select(Media)
         .where(Media.id == media_id)
         .options(
-            selectinload(Media.urls),
-            selectinload(Media.segments),
-            selectinload(Media.video_tags).selectinload(VideoTag.tag),
-            selectinload(Media.subtitles),
+            *_MEDIA_DETAIL_LOADERS,
         )
     )
     media = result.scalar_one()
@@ -1087,16 +1114,22 @@ def _needs_transcoding(
     return False
 
 
-def _transcode_stream(
+async def _transcode_stream(
     path: Path,
     video_codec: str | None,
     start_time: float = 0,
-) -> Generator[bytes, None, None]:
+) -> AsyncGenerator[bytes, None]:
     """Transcode media to browser-compatible fragmented MP4 via FFmpeg.
 
     - H.264 video is copied (fast); other codecs are transcoded to H.264
     - Audio is always transcoded to AAC (browser-safe)
     - Output is fragmented MP4 for progressive streaming
+
+    Must be an **async** generator. As a sync generator Starlette served it via
+    `iterate_in_threadpool`, so every concurrent playback parked a worker
+    thread for the whole request; AnyIO's default limit is 40 threads, and
+    exhausting them stalled unrelated `asyncio.to_thread` work (thumbnails,
+    subtitle extraction, backups).
     """
     cmd: list[str] = [_get_ffmpeg(), "-nostdin"]
 
@@ -1122,26 +1155,23 @@ def _transcode_stream(
         "pipe:1",
     ])
 
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+    proc = None
     try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
         assert proc.stdout is not None
         while True:
-            chunk = proc.stdout.read(1024 * 1024)
+            # Awaiting on the pipe yields to the event loop instead of
+            # occupying a worker thread for the duration of the stream.
+            chunk = await proc.stdout.read(1024 * 1024)
             if not chunk:
                 break
             yield chunk
     finally:
-        if proc.stdout:
-            proc.stdout.close()
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        await _terminate_process(proc)
 
 
 @router.get("/{media_id}/stream")
@@ -1556,6 +1586,7 @@ async def extract_network_metadata(media_id: int):
     fps = None
     bitrate = None
 
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             ffprobe,
@@ -1612,9 +1643,13 @@ async def extract_network_metadata(media_id: int):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to extract metadata: {str(exc)[:200]}")
+    finally:
+        # wait_for() only cancels the coroutine; the child must be killed too.
+        await _terminate_process(proc)
 
     # Generate thumbnail from network source (no DB connection held)
     thumb_path = None
+    thumb_proc = None
     try:
         if duration and duration > 0:
             thumb_dir = _cfg.thumbnail_dir
@@ -1643,6 +1678,8 @@ async def extract_network_metadata(media_id: int):
     except (asyncio.TimeoutError, Exception):
         # Thumbnail is best-effort; never fail the metadata extraction for it
         thumb_path = None
+    finally:
+        await _terminate_process(thumb_proc)
 
     # Phase 3 — write back in a fresh session.
     async with async_session() as db:
@@ -2173,10 +2210,7 @@ async def scrape_single_media(media_id: int, db: AsyncSession = Depends(get_db))
             select(Media)
             .where(Media.id == media_id)
             .options(
-                selectinload(Media.urls),
-                selectinload(Media.segments),
-                selectinload(Media.video_tags).selectinload(VideoTag.tag),
-                selectinload(Media.subtitles),
+                *_MEDIA_DETAIL_LOADERS,
             )
         )
         result_q = await db.execute(query)

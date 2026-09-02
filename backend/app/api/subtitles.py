@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.models.media import Media
 from app.models.subtitle import Subtitle
 from app.schemas.subtitle import SubtitleCreate, SubtitleResponse, SubtitleUpdate
+from app.services.media_access import get_accessible_media
 
 router = APIRouter(tags=["subtitles"])
 
@@ -59,9 +59,8 @@ def _validate_subtitle_path(file_path: str, media_file_path: str | None) -> Path
 @router.get("/media/{media_id}/subtitles", response_model=list[SubtitleResponse])
 async def list_subtitles(media_id: int, db: AsyncSession = Depends(get_db)):
     """List all subtitles for a media item."""
-    media = await db.get(Media, media_id)
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
+    # Gate: soft-deleted rows and restricted libraries must not be reachable.
+    await get_accessible_media(db, media_id)
     result = await db.execute(
         select(Subtitle).where(Subtitle.media_id == media_id)
     )
@@ -75,9 +74,7 @@ async def create_subtitle(
     db: AsyncSession = Depends(get_db),
 ):
     """Add a subtitle to a media item."""
-    media = await db.get(Media, media_id)
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
+    media = await get_accessible_media(db, media_id)
     data = payload.model_dump()
 
     # S2 security fix: external subtitle files must live in the media's
@@ -111,9 +108,9 @@ async def update_subtitle(
 
     # S2 security fix: same path restriction as create.
     if update_data.get("file_path"):
-        media = await db.get(Media, subtitle.media_id)
+        media = await get_accessible_media(db, subtitle.media_id)
         if _validate_subtitle_path(
-            update_data["file_path"], media.file_path if media else None
+            update_data["file_path"], media.file_path
         ) is None:
             raise HTTPException(
                 status_code=400,
@@ -151,8 +148,9 @@ async def get_subtitle_content(
         raise HTTPException(status_code=404, detail="Subtitle not found")
 
     # Load owning media once — needed for both path validation and the
-    # embedded-subtitle extraction branch below.
-    media = await db.get(Media, media_id)
+    # embedded-subtitle extraction branch below. Gated so that subtitles of
+    # restricted / soft-deleted media cannot be read by direct URL.
+    media = await get_accessible_media(db, media_id)
 
     # File-backed subtitle (with path traversal protection)
     if subtitle.file_path:

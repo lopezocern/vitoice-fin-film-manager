@@ -6,12 +6,13 @@
   //       player store 文件按约定未修改，本页自包含不依赖其字段。
   import { onMount, onDestroy, untrack } from 'svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
   import { mediaApi, type RelatedMediaItem } from '$lib/api/media';
   import { seriesApi } from '$lib/api/series';
   import { client, BASE_URL } from '$lib/api/client';
   import { formatTime } from '$lib/utils/format';
   import { toggleWorkAreaMaximize, isWorkAreaMaximized, sizeLooksMaximized } from '$lib/utils/tauri-window';
+  import { realQueryParam, urlWithParam } from '$lib/utils/urlState';
+  import { createAsyncCleanup } from '$lib/utils/asyncCleanup';
   import { classifyNetworkUrl, loadHlsJs, openExternalUrl, isAdultAggregatorUrl, isAdultNetworkMedia, extractFancode } from '$lib/utils/network-media';
   import { adultNetworkApi } from '$lib/api/networkSources';
   import { settingsStore } from '$lib/stores/settings.svelte';
@@ -68,7 +69,10 @@
 
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-  const mediaId = $derived($page.url.searchParams.get('id') ?? '');
+  // mediaId 必须在初始化时从真实 URL 读一次：popstate（详情/播放器返回）重挂载
+  // 组件时，SvelteKit page store 只恢复 pathname、丢失 query，用 $page.url 会
+  // 得到空 id → 显示"未指定要播放的媒体"。详见 lib/utils/urlState.ts。
+  const mediaId = realQueryParam('id') ?? '';
 
   // —— 媒体与加载 ——
   let media = $state<PlayerMedia | null>(null);
@@ -151,6 +155,14 @@
   let toastMsg = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let flash = $state(false);
+
+  // 一次性 setTimeout 也必须有句柄：组件卸载后定时器仍会触发并写已销毁的
+  // $state（seeking/seekVerify/flash）。统一在此声明，见底部 onDestroy。
+  let seekFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let seekVerifyTimer: ReturnType<typeof setTimeout> | null = null;
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  // 截图/下载用的 object URL，卸载时统一 revoke，避免整块 blob 滞留内存。
+  const objectUrls = new Set<string>();
 
   // —— 派生 ——
   const isPlaying = $derived(!paused);
@@ -727,18 +739,14 @@
     endOverlayOpen = false;
     if (id != null) {
       // 保留 from 等现有参数，仅替换 id —— $effect(mediaId) 会自动重载
-      const url = new URL($page.url);
-      url.searchParams.set('id', String(id));
-      await goto(url.pathname + url.search);
+      await goto(urlWithParam('id', String(id)));
     }
   }
 
   function playRecItem(item: RelatedMediaItem): void {
     cancelEndTimer();
     endOverlayOpen = false;
-    const url = new URL($page.url);
-    url.searchParams.set('id', String(item.id));
-    void goto(url.pathname + url.search);
+    void goto(urlWithParam('id', String(item.id)));
   }
 
   function dismissEndOverlay(): void {
@@ -812,7 +820,11 @@
         // 否则 displayTime = 新 streamStart + 旧 currentTime 会跳变
         currentTime = 0;
         // 安全兜底：5 秒后自动清除（防止 onLoadedMetadata 未触发时标志残留）
-        setTimeout(() => { seeking = false; }, 5000);
+        if (seekFallbackTimer) clearTimeout(seekFallbackTimer);
+        seekFallbackTimer = setTimeout(() => {
+          seeking = false;
+          seekFallbackTimer = null;
+        }, 5000);
         return;
       }
       // 已缓冲：在当前流内 seek
@@ -830,7 +842,9 @@
       currentTime = target;
       const my = { target, before };
       seekVerify = my;
-      setTimeout(() => {
+      if (seekVerifyTimer) clearTimeout(seekVerifyTimer);
+      seekVerifyTimer = setTimeout(() => {
+        seekVerifyTimer = null;
         if (seekVerify !== my || !videoEl) return;
         seekVerify = null;
         const v = videoEl;
@@ -859,7 +873,11 @@
     // 否则 displayTime = 新 streamStart + 旧 currentTime 会跳变
     currentTime = 0;
     // 安全兜底：5 秒后自动清除（防止 onLoadedMetadata 未触发时标志残留）
-    setTimeout(() => { seeking = false; }, 5000);
+    if (seekFallbackTimer) clearTimeout(seekFallbackTimer);
+    seekFallbackTimer = setTimeout(() => {
+      seeking = false;
+      seekFallbackTimer = null;
+    }, 5000);
   }
   function seekRelative(d: number): void {
     seek(displayTime + d);
@@ -1015,23 +1033,27 @@
   // 需要通过 Tauri 的 onResized 监听窗口状态变化（同时同步最大化状态）。
   $effect(() => {
     if (!isTauri) return;
-    let unlisten: (() => void) | null = null;
+    // createAsyncCleanup 防止"卸载早于 await 完成"导致监听泄漏：
+    // 旧写法在 cleanup 执行时 unlisten 仍为 null，之后赋值的注销函数永不调用。
+    const ac = createAsyncCleanup();
     (async () => {
       try {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const win = getCurrentWindow();
         isMaximized = (await win.isMaximized()) || isWorkAreaMaximized();
-        unlisten = await win.onResized(async () => {
-          isFullscreen = await win.isFullscreen();
-          // 手动工作区最大化时系统 isMaximized() 返回 false，用尺寸判断
-          const s = await win.outerSize();
-          isMaximized = s ? sizeLooksMaximized(s) : await win.isMaximized();
-        });
+        ac.set(
+          await win.onResized(async () => {
+            isFullscreen = await win.isFullscreen();
+            // 手动工作区最大化时系统 isMaximized() 返回 false，用尺寸判断
+            const s = await win.outerSize();
+            isMaximized = s ? sizeLooksMaximized(s) : await win.isMaximized();
+          })
+        );
       } catch {
         /* ignore */
       }
     })();
-    return () => { unlisten?.(); };
+    return () => ac.dispose();
   });
 
   // —— 评分 / 收藏 ——
@@ -1140,11 +1162,15 @@
   // —— 截图 ——
   function downloadBlob(blob: Blob, name: string): void {
     const url = URL.createObjectURL(blob);
+    objectUrls.add(url);
     const a = document.createElement('a');
     a.href = url;
     a.download = name;
     a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      objectUrls.delete(url);
+    }, 1000);
   }
   async function writeClipboardImage(blob: Blob): Promise<boolean> {
     // 1) 尝试 Tauri 剪贴板插件（运行时动态加载，未安装时静默回退）
@@ -1206,7 +1232,8 @@
     }
     // 闪光
     flash = true;
-    setTimeout(() => (flash = false), 180);
+    if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { flash = false; flashTimer = null; }, 180);
 
     const baseName = (media?.file_name ?? 'screenshot').replace(/\.[^.]+$/, '');
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -1276,7 +1303,8 @@
       }
       // 闪光反馈 + 通知列表/详情刷新（新 updated_at 破封面缓存）
       flash = true;
-      setTimeout(() => (flash = false), 180);
+      if (flashTimer) clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { flash = false; flashTimer = null; }, 180);
       librariesStore.notifyChanged();
       toast('已将当前帧设为封面');
     } catch (e) {
@@ -1602,7 +1630,7 @@
   // 而不是回到播放器（旧记录）。
   function exitPlayer(): void {
     void saveProgress();
-    const from = $page.url.searchParams.get('from');
+    const from = realQueryParam('from');
     if (from) {
       goto(decodeURIComponent(from), { replaceState: true });
     } else {
@@ -1644,6 +1672,31 @@
     cancelEndTimer();
     if (pressTimer) clearTimeout(pressTimer);
     if (toastTimer) clearTimeout(toastTimer);
+
+    // 一次性定时器：卸载后仍会触发并写已销毁的 $state
+    if (seekFallbackTimer) clearTimeout(seekFallbackTimer);
+    if (seekVerifyTimer) clearTimeout(seekVerifyTimer);
+    if (flashTimer) clearTimeout(flashTimer);
+    seekFallbackTimer = null;
+    seekVerifyTimer = null;
+    flashTimer = null;
+
+    // 截图 / 下载的 blob URL
+    for (const url of objectUrls) URL.revokeObjectURL(url);
+    objectUrls.clear();
+
+    // 释放视频：转码流是一条长期占用的 HTTP 连接（后端 ffmpeg 子进程），
+    // 仅移除 <video> 元素不够——必须清空 src 并 load() 才真正断开。
+    const v = videoEl;
+    if (v) {
+      try {
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+      } catch {
+        /* 元素已分离，忽略 */
+      }
+    }
   });
 </script>
 

@@ -17,6 +17,7 @@ from app.database import async_session
 from app.models.media import Media, MediaUrl
 from app.models.enums import UrlRole
 from app.models.setting import Setting
+from app.services.media_access import get_accessible_media
 
 router = APIRouter(prefix="/network", tags=["network"])
 
@@ -153,9 +154,11 @@ async def adult_refresh(payload: AdultRefreshRequest):
     added = 0
     removed = 0
     async with async_session() as db:
-        media_row = await db.get(Media, media_id)
-        if media_row is None:
-            raise HTTPException(status_code=404, detail="媒体不存在")
+        # Gate: the adult-source resolver must refuse restricted / soft-deleted
+        # media. Without this, turning the restricted switch off still allowed
+        # resolving (and writing back) network sources by calling this
+        # endpoint directly.
+        media_row = await get_accessible_media(db, media_id)
 
         if page_url_ids:
             rows = (

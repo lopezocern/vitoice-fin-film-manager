@@ -1,7 +1,7 @@
 ﻿<script lang="ts">
   // 导入向导：4 步流程引导首次用户创建库、扫描、生成缩略图、查看结果
   // 使用 client 直接与后端交互（库的完整字段含 scrape_mode / watch_enabled）
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import { client, ApiError } from '$lib/api/client';
   import { tasksApi, type Task } from '$lib/api/tasks';
@@ -189,6 +189,10 @@
       thumbSkipTimer = null;
     }
   }
+
+  // 扫描进行中若离开 /import，tick 的 setTimeout 自续链永远不会停：
+  // pollGeneration 不再被递增，旧 tick 一直写已销毁组件的 $state。
+  onDestroy(stopPolling);
 
   async function refreshTask(kind: 'scan' | 'thumbnail', generation: number): Promise<void> {
     if (generation !== pollGeneration) return;

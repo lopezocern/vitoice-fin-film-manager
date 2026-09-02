@@ -21,7 +21,9 @@ class MediaLibrary(Base):
     type: Mapped[LibraryType] = mapped_column(
         Enum(LibraryType, values_callable=enum_values), default=LibraryType.VIDEO, nullable=False
     )
-    root_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Unique: registering the same directory twice would scan it into
+    # duplicate media rows. Enforced here and in migration 020.
+    root_path: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     scrape_mode: Mapped[ScrapeMode] = mapped_column(
         Enum(ScrapeMode, values_callable=enum_values), default=ScrapeMode.NONE, nullable=False
     )

@@ -46,10 +46,10 @@ export function isTauriEnv(): boolean {
 export async function openExternalUrl(url: string): Promise<void> {
   if (isTauriEnv()) {
     try {
-      const { open } = await import('@tauri-apps/plugin-shell');
-      await open(url);
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(url);
     } catch {
-      // Fallback to window.open if Tauri shell plugin fails
+      // Fallback to window.open if Tauri opener plugin fails
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   } else {
