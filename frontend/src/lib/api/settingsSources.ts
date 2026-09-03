@@ -10,7 +10,7 @@ export interface ScrapeSourceItem {
   language?: string;
   timeout?: number;
   enabled?: boolean;
-  parser?: '' | 'javbus' | 'javdb' | 'javlibrary';
+  parser?: '' | 'javbus' | 'javdb' | 'javlibrary' | '3xplanet';
 }
 
 export type ScrapeSources = {
@@ -27,6 +27,10 @@ export interface SourceTestResult {
 export const sourcesApi = {
   /** Load configured chains. api_key values arrive masked (****). */
   get: () => client.get<ScrapeSources>('/settings/scrape-sources'),
+
+  /** Built-in AV source chain (the scraper's fallback when av group is empty). */
+  getAvDefaults: () =>
+    client.get<{ av: ScrapeSourceItem[] }>('/settings/scrape-sources/defaults'),
 
   /** Validate + persist chains. Masked api_key placeholders are kept. */
   put: (sources: ScrapeSources) =>

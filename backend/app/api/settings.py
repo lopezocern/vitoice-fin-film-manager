@@ -296,6 +296,32 @@ async def put_scrape_sources(
     return _mask_sources(json.loads(setting.value))
 
 
+@router.get("/scrape-sources/defaults")
+async def get_scrape_source_defaults():
+    """Built-in AV source chain, as editable seeds for the settings UI.
+
+    The scraper falls back to exactly this chain when the configured av
+    group is empty, so the UI seeds empty lists with these rows (the user
+    can then edit/delete/reorder and persist them). Single source of
+    truth: base URLs come from the same constants the scraper uses.
+    """
+    from app.services.av_scraper import (
+        _3XPLANET_BASE,
+        _JAVBUS_BASE,
+        _JAVDB_BASE,
+        _JAVLIB_BASE,
+    )
+
+    return {
+        "av": [
+            {"name": "JavBus", "kind": "html", "base_url": _JAVBUS_BASE, "parser": ""},
+            {"name": "JavDB", "kind": "html", "base_url": _JAVDB_BASE, "parser": ""},
+            {"name": "JavLibrary", "kind": "html", "base_url": _JAVLIB_BASE, "parser": ""},
+            {"name": "3xplanet", "kind": "html", "base_url": _3XPLANET_BASE, "parser": ""},
+        ]
+    }
+
+
 @router.post("/test-proxy")
 async def test_proxy(
     payload: TestProxyRequest | None = None,

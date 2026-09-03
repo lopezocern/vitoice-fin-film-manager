@@ -34,6 +34,7 @@ logger = logging.getLogger("vitoice.av_scraper")
 _JAVBUS_BASE = "https://www.javbus.com"
 _JAVDB_BASE = "https://javdb.com"
 _JAVLIB_BASE = "https://www.javlibrary.com"
+_3XPLANET_BASE = "https://3xplanet.com"
 
 # Browser-like User-Agent to avoid being blocked by basic bot detection.
 _UA = (
@@ -976,7 +977,7 @@ async def scrape_av_media(
             ("JavBus", _fetch_javbus_page, _parse_javbus_html, _JAVBUS_BASE),
             ("JavDB", _fetch_javdb_page, _parse_javdb_html, _JAVDB_BASE),
             ("JavLibrary", _fetch_javlib_page, _parse_javlib_html, _JAVLIB_BASE),
-            ("3xplanet", _fetch_3xplanet_page, _parse_3xplanet_html, "https://3xplanet.com"),
+            ("3xplanet", _fetch_3xplanet_page, _parse_3xplanet_html, _3XPLANET_BASE),
         ]
 
     if not source_specs:

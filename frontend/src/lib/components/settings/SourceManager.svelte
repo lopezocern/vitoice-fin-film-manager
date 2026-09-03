@@ -17,7 +17,11 @@
   const KIND_META: Record<Kind, { label: string; hint: string; adult: boolean }> = {
     movie: { label: '电影数据源', hint: '使用默认源：TMDB（现有 API Key / Base URL 设置）', adult: false },
     tv: { label: '电视剧数据源', hint: '使用默认源：TMDB（现有 API Key / Base URL 设置）', adult: false },
-    av: { label: '限制内容数据源', hint: '使用默认源：JavBus → JavDB → JavLibrary', adult: true },
+    av: {
+      label: '限制内容数据源',
+      hint: '列表为空时后端使用内置链：JavBus → JavDB → JavLibrary → 3xplanet（下方可编辑/删除/排序）',
+      adult: true,
+    },
   };
 
   const KIND_ORDER: Kind[] = ['movie', 'tv', 'av'];
@@ -26,6 +30,7 @@
     { value: 'javbus', label: 'JavBus 格式' },
     { value: 'javdb', label: 'JavDB 格式' },
     { value: 'javlibrary', label: 'JavLibrary 格式' },
+    { value: '3xplanet', label: '3xplanet 格式' },
   ];
 
   let sources = $state<ScrapeSources>({ movie: [], tv: [], av: [] });
@@ -55,10 +60,31 @@
     loadError = '';
     try {
       sources = await sourcesApi.get();
+      // av 列表为空时用内置链种子填充为可编辑行（此时后端实际走的就是这条
+      // 内置链，展示与真实行为一致）。种子不标记 dirty——用户不改/不保存，
+      // 后端继续用内置默认，行为不变。
+      if (sources.av.length === 0) {
+        await seedAvDefaults();
+      }
     } catch (e) {
       loadError = e instanceof Error ? e.message : '加载数据源失败';
     } finally {
       loading = false;
+    }
+  }
+
+  /** 用后端内置 AV 链替换当前 av 列表（编辑种子，保存后才持久化）。 */
+  async function seedAvDefaults(markDirty = false): Promise<void> {
+    try {
+      const defaults = await sourcesApi.getAvDefaults();
+      sources.av = (defaults.av ?? []).map((d) => ({
+        ...d,
+        timeout: 30,
+        enabled: true,
+      }));
+      if (markDirty) dirty = true;
+    } catch {
+      // 内置链拉取失败（如旧版后端无此端点）——保留空列表与提示
     }
   }
 
@@ -266,6 +292,7 @@
 
           <div class="sm-add">
             {#if kind === 'av'}
+              <button class="sm-add-btn" title="恢复为后端内置的默认源链（保存后生效）" onclick={() => seedAvDefaults(true)}>载入内置源</button>
               <button class="sm-add-btn" onclick={() => addSource(kind, 'html')}>+ 添加源（成人站点）</button>
             {:else}
               <button class="sm-add-btn" onclick={() => addSource(kind, 'tmdb')}>+ 添加镜像/回退源</button>
@@ -488,6 +515,10 @@
   .sm-btn:disabled {
     opacity: 0.35;
     cursor: default;
+  }
+  .sm-add {
+    display: flex;
+    gap: 8px;
   }
   .sm-add-btn {
     align-self: flex-start;

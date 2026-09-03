@@ -296,8 +296,8 @@
       category: 'scrape',
       label: 'API Base URL',
       type: 'text',
-      default: '',
-      description: '留空使用默认 https://api.themoviedb.org/3，可填反代地址以改善连通性'
+      default: 'https://api.themoviedb.org/3',
+      description: '默认官方地址，可填反代地址以改善连通性；改回默认即可还原'
     },
     // 播放器
     {
@@ -489,6 +489,11 @@
         if (s.value !== null && s.value !== undefined) {
           map[s.key] = s.value;
         }
+      }
+      // tmdb_base_url 空值在后端语义上等同官方默认（scraper 留空回退），
+      // 输入框直接显示默认地址，避免"看起来没配置"
+      if (!(map['tmdb_base_url'] ?? '').trim()) {
+        map['tmdb_base_url'] = 'https://api.themoviedb.org/3';
       }
       values = map;
       loaded = true;
