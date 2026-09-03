@@ -123,7 +123,11 @@ def upgrade() -> None:
     )
     op.create_index("ix_video_tags_media_id", "video_tags", ["media_id"])
     op.create_index("ix_video_tags_tag_id", "video_tags", ["tag_id"])
-    op.create_unique_constraint("uq_video_tags_media_tag", "video_tags", ["media_id", "tag_id"])
+    # NOTE: the (media_id, tag_id) UNIQUE is intentionally NOT created here —
+    # `op.create_unique_constraint` is invalid on SQLite (no ALTER support)
+    # and would abort the whole chain on a fresh DB. Revision 003 adds the
+    # same constraint via batch_alter_table (the SQLite-compatible path) and
+    # deduplicates rows first.
 
     # segments
     op.create_table(
