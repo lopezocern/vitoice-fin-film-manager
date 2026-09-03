@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import logging
 import os
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +34,138 @@ VIDEO_EXTENSIONS = {
     ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v",
     ".mpg", ".mpeg", ".ts", ".m2ts", ".vob", ".ogv", ".3gp",
 }
+
+
+# --- Pure scan-planning helpers -------------------------------------------------
+#
+# scan_library() used to build its index, diff and missing/restore classification
+# inline across ~420 lines. These steps are pure (no session, no I/O) and are
+# the parts most likely to regress silently, so they live here where they can be
+# unit-tested. Keep them free of DB access.
+
+
+@dataclass
+class ExistingIndex:
+    """Existing media rows for one library, keyed by normalized path."""
+
+    by_path: dict[str, dict] = field(default_factory=dict)
+    # filename -> rows that are currently marked missing and not soft-deleted.
+    # Used to relink files that moved/renamed while the app was offline.
+    missing_by_name: dict[str, list[dict]] = field(default_factory=dict)
+
+
+def index_existing_rows(rows) -> ExistingIndex:
+    """Index `(id, file_path, mtime, size, file_missing, media_type, is_deleted)` rows.
+
+    Paths are normalized so DB-stored paths and `os.walk` output compare equal
+    regardless of separator style.
+    """
+    index = ExistingIndex()
+    for row in rows:
+        raw_path = row[1]
+        norm_path = os.path.normpath(raw_path) if raw_path else raw_path
+        entry = {
+            "id": row[0],
+            "file_modified_at": row[2],
+            "file_size": row[3],
+            "file_missing": row[4],
+            "media_type": row[5],
+            "is_deleted": row[6],
+            "orig_path": raw_path,  # kept for the one-time normalization fix
+        }
+        index.by_path[norm_path] = entry
+        if row[4] and not row[6] and raw_path:
+            index.missing_by_name.setdefault(os.path.basename(raw_path), []).append(entry)
+    return index
+
+
+@dataclass
+class ScanPlan:
+    """What a scan pass wants to write, before any DB session is opened."""
+
+    to_update: list[tuple[int, datetime, int]] = field(default_factory=list)
+    to_create: list[Media] = field(default_factory=list)
+    to_relink: dict[int, dict] = field(default_factory=dict)
+    new_count: int = 0
+    relink_count: int = 0
+
+
+def plan_scan_changes(files, index: ExistingIndex, library_id: int) -> ScanPlan:
+    """Diff scanned files against existing rows.
+
+    Mutates `index.missing_by_name`: a candidate consumed by a relink is removed
+    so one file can only relink one record.
+    """
+    plan = ScanPlan()
+    seen_paths: set[str] = set()
+
+    for file_info in files:
+        fp = file_info["file_path"]
+        if fp in index.by_path or fp in seen_paths:
+            info = index.by_path.get(fp)
+            if info and info["file_modified_at"] != file_info["file_modified_at"]:
+                plan.to_update.append((
+                    info["id"],
+                    file_info["file_modified_at"],
+                    file_info["file_size"],
+                ))
+            continue
+
+        # A missing record with the same basename means the file most likely
+        # moved/renamed while we were offline — reuse the record instead of
+        # creating a shadow duplicate.
+        candidates = index.missing_by_name.get(file_info["file_name"])
+        if candidates:
+            size_matches = [c for c in candidates if c["file_size"] == file_info["file_size"]]
+            chosen = (size_matches or candidates)[0]
+            plan.to_relink[chosen["id"]] = {
+                "file_path": fp,
+                "file_size": file_info["file_size"],
+                "file_modified_at": file_info["file_modified_at"],
+            }
+            candidates.remove(chosen)
+            seen_paths.add(fp)
+            plan.relink_count += 1
+            continue
+
+        plan.to_create.append(Media(
+            library_id=library_id,
+            title=Path(file_info["file_name"]).stem,
+            file_path=file_info["file_path"],
+            file_name=file_info["file_name"],
+            media_type=MediaType.LOCAL,
+            file_size=file_info["file_size"],
+            file_modified_at=file_info["file_modified_at"],
+        ))
+        seen_paths.add(fp)
+        plan.new_count += 1
+
+    return plan
+
+
+def classify_missing(
+    index: ExistingIndex, scanned_paths: set[str], relinked_ids
+) -> tuple[list[int], list[int]]:
+    """Split existing rows into newly-missing and newly-restored ids.
+
+    Rows already handled by the relink pass are skipped: their old path is
+    expected to be gone.
+    """
+    missing_ids: list[int] = []
+    restored_ids: list[int] = []
+
+    for fp, info in index.by_path.items():
+        if fp is None or info["is_deleted"]:
+            continue
+        if info["id"] in relinked_ids:
+            continue
+        if fp not in scanned_paths:
+            if not info["file_missing"]:
+                missing_ids.append(info["id"])
+        elif info["file_missing"]:
+            restored_ids.append(info["id"])
+
+    return missing_ids, restored_ids
 
 
 def compute_file_hash(file_path: str, chunk_size: int = 65536) -> str:
@@ -173,104 +306,33 @@ async def scan_library(library_id: int, task_id: int | None = None) -> int:
                 Media.is_deleted,
             ).where(Media.library_id == library_id)
         )
-        existing: dict[str, dict] = {}
-        # Missing (not soft-deleted) records keyed by filename — used to
-        # relink files that were moved/renamed while the app was offline
-        # (no watcher event fired, so only a full scan can reconcile them).
-        missing_by_name: dict[str, list[dict]] = {}
-        for row in result.fetchall():
-            # Normalize path for consistent comparison (fixes path separator
-            # differences between DB-stored paths and os.walk output)
-            norm_path = os.path.normpath(row[1]) if row[1] else row[1]
-            existing[norm_path] = {
-                "id": row[0],
-                "file_modified_at": row[2],
-                "file_size": row[3],
-                "file_missing": row[4],
-                "media_type": row[5],
-                "is_deleted": row[6],
-                "orig_path": row[1],  # Keep original for potential migration
-            }
-            if row[4] and not row[6] and row[1]:
-                missing_by_name.setdefault(os.path.basename(row[1]), []).append(
-                    existing[norm_path]
+        rows = result.fetchall()
+    index = index_existing_rows(rows)
+    existing = index.by_path
+
+    # --- Phase 4: Diff files against existing rows (pure, no DB session) ---
+    plan = plan_scan_changes(files, index, library_id)
+    to_update = plan.to_update
+    to_create = plan.to_create
+    to_relink = plan.to_relink
+    new_count = plan.new_count
+    relink_count = plan.relink_count
+
+    # Throttle progress updates: every 5 items or last item
+    # (reduces DB write contention during bulk imports)
+    if task_id:
+        for i, file_info in enumerate(files):
+            if (i + 1) % 5 == 0 or i + 1 == total:
+                await task_manager.update_progress(
+                    task_id, current=i + 1, total=total,
+                    subtitle=file_info["file_name"],
                 )
-
-    # --- Phase 4: Process files + progress updates (no DB session held) ---
-    to_update: list[tuple[int, datetime, int]] = []
-    to_create: list[Media] = []
-    # media_id → new file_path — records whose file moved while offline
-    to_relink: dict[int, dict] = {}
-    seen_paths: set[str] = set()
-
-    for i, file_info in enumerate(files):
-        fp = file_info["file_path"]
-        if fp in existing or fp in seen_paths:
-            info = existing.get(fp)
-            if info and info["file_modified_at"] != file_info["file_modified_at"]:
-                to_update.append((
-                    info["id"],
-                    file_info["file_modified_at"],
-                    file_info["file_size"],
-                ))
-        else:
-            # Relink pass: if a missing record in this library has the same
-            # filename, the file was most likely moved/renamed offline —
-            # reuse the record instead of creating a shadow duplicate.
-            candidates = missing_by_name.get(file_info["file_name"])
-            if candidates:
-                size_matches = [
-                    c for c in candidates if c["file_size"] == file_info["file_size"]
-                ]
-                chosen = (size_matches or candidates)[0]
-                to_relink[chosen["id"]] = {
-                    "file_path": fp,
-                    "file_size": file_info["file_size"],
-                    "file_modified_at": file_info["file_modified_at"],
-                }
-                candidates.remove(chosen)  # one file relinks one record
-                seen_paths.add(fp)
-                relink_count += 1
-                continue
-
-            media = Media(
-                library_id=library_id,
-                title=Path(file_info["file_name"]).stem,
-                file_path=file_info["file_path"],
-                file_name=file_info["file_name"],
-                media_type=MediaType.LOCAL,
-                file_size=file_info["file_size"],
-                file_modified_at=file_info["file_modified_at"],
-            )
-            to_create.append(media)
-            seen_paths.add(fp)
-            new_count += 1
-
-        # Throttle progress updates: every 5 items or last item
-        # (reduces DB write contention during bulk imports)
-        if task_id and ((i + 1) % 5 == 0 or i + 1 == total):
-            await task_manager.update_progress(
-                task_id, current=i + 1, total=total,
-                subtitle=file_info["file_name"],
-            )
 
     # --- Phase 5: Detect missing/restored files (pure logic, no DB) ---
     scanned_paths = {f["file_path"] for f in files}
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    missing_ids: list[int] = []
-    restored_ids: list[int] = []
-    for fp, info in existing.items():
-        if fp is None or info["is_deleted"]:
-            continue
-        if info["id"] in to_relink:
-            continue  # handled by the relink pass — old path is expected gone
-        if fp not in scanned_paths:
-            if not info["file_missing"]:
-                missing_ids.append(info["id"])
-        else:
-            if info["file_missing"]:
-                restored_ids.append(info["id"])
+    missing_ids, restored_ids = classify_missing(index, scanned_paths, to_relink)
 
     # --- Phase 6: Batch write — missing/restored/modified/insert (short session) ---
     async with async_session() as session:
