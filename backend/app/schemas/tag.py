@@ -67,8 +67,13 @@ class TagResponse(ORMBaseModel):
 
 
 class VideoTagCreate(BaseModel):
-    """Schema for creating a media-tag association."""
-    media_id: int
+    """Schema for creating a media-tag association.
+
+    ``media_id`` is accepted but optional — the route derives it from the
+    path and always overwrites the body value, so callers (e.g. the
+    frontend tag sync) may send only ``tag_id``.
+    """
+    media_id: int | None = None
     tag_id: int
     source: str = Field("manual", max_length=20, description="manual | ai | scrape")
     confidence: float | None = Field(None, ge=0.0, le=1.0, description="AI confidence 0.0-1.0")

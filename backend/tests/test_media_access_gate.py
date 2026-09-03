@@ -189,19 +189,48 @@ async def test_tagging_restricted_media_is_rejected(
     assert created.status_code == 201
     tag_id = created.json()["id"]
 
-    # VideoTagCreate requires media_id in the body even though the handler
-    # overwrites it from the path — send it so we exercise the gate rather
-    # than tripping request validation (which would surface as 422).
+    # Send the real frontend payload ({tag_id} only): VideoTagCreate now
+    # accepts a missing media_id (the handler derives it from the path), so
+    # this must exercise the gate and return 404 — not a 422 from schema
+    # validation.
     hidden_id = fixture_data["hidden"].id
     response = await api_client.post(
         f"/api/media/{hidden_id}/tags",
-        json={"media_id": hidden_id, "tag_id": tag_id},
+        json={"tag_id": tag_id},
     )
 
     assert response.status_code == 404, (
         f"Tagging restricted media returned {response.status_code} — the write "
         "path bypasses the gate."
     )
+
+
+async def test_tag_media_accepts_tag_id_without_media_id(
+    api_client: AsyncClient,
+    fixture_data: dict,
+) -> None:
+    """Frontend sends only {tag_id}; the route must not 422 on media_id.
+
+    Regression for the installed build: detail-page "add tags" always failed
+    with "添加标签失败" because ``VideoTagCreate`` declared ``media_id`` as
+    required while ``syncMediaTags`` POSTs ``{"tag_id": ...}`` only — Pydantic
+    rejected the body before the handler could overwrite media_id from the path.
+    """
+    created = await api_client.post("/api/tags", json={"name": "reg-tag"})
+    assert created.status_code == 201
+    tag_id = created.json()["id"]
+
+    mid = fixture_data["visible"].id
+    response = await api_client.post(
+        f"/api/media/{mid}/tags", json={"tag_id": tag_id}
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["media_id"] == mid
+
+    # Clean up the association (also exercises the untag endpoint).
+    removed = await api_client.delete(f"/api/media/{mid}/tags/{tag_id}")
+    assert removed.status_code == 204
 
 
 async def test_batch_reports_per_item_failure_without_aborting(
