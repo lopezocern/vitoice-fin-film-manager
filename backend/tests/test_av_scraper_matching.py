@@ -6,6 +6,7 @@ import pytest
 from app.services.av_scraper import (
     _fetch_3xplanet_page,
     _find_3xplanet_detail_url,
+    _parse_3xplanet_html,
     parse_av_fancode,
 )
 
@@ -54,3 +55,70 @@ async def test_fetch_3xplanet_uses_special_direct_slugs() -> None:
 
     assert "https://3xplanet.com/259luxu-1100/" in requested
     assert "https://3xplanet.com/uncen-leaked-259luxu-1100/" in requested
+
+
+_LEGACY_3XPLANET_HTML = """
+<html><head>
+<meta property="og:image" content="https://3xplanetimg.com/images/2023/10/22/cover/s0/379998_cover.jpg">
+</head><body>
+<article>
+  <h1>(Mosaic Reduced) 259LUXU-1100 ラグジュTV 1087 サンプルタイトル</h1>
+  <p>Starring: Arisaka Miyuki</p>
+  <p>Studio: Luxury TV</p>
+  <p>Tags: UNCENSORED , Luxury TV , Arisaka Miyuki , Facial cumshots</p>
+  <p>品番: 259LUXU-1100</p>
+  <p>発売日: 2019/04/08</p>
+  <p>収録時間: 69min</p>
+  <p>メーカー: ラグジュTV</p>
+  <p>ジャンル: 美脚 美尻 顔射 お姉さん</p>
+  <p>出演者: 有坂深雪</p>
+</article>
+</body></html>
+"""
+
+
+def test_parse_3xplanet_legacy_layout_fills_fields() -> None:
+    """旧版布局（无 dl.xplanet-specs）必须解析 article p 行。
+
+    历史 bug：h1 阶段先写入 title 后，`if not result:` 守卫恒为 False，
+    旧版解析块成为死代码，页面退化为 JSON-LD 兜底（genres/actresses 残缺、
+    工作室名混入 actresses）。回归锁：旧版页面必须拿到完整字段，
+    且日文行优先于英文行、ジャンル按空格拆分。
+    """
+    parsed = _parse_3xplanet_html(
+        _LEGACY_3XPLANET_HTML, "259LUXU-1100", "https://3xplanet.com"
+    )
+    assert parsed is not None
+    assert parsed["actresses"] == ["有坂深雪"]  # 日文行覆盖英文 Starring 行
+    assert parsed["studio"] == "ラグジュTV"  # 日文行覆盖英文 Studio 行
+    assert parsed["release_date"] == "2019-04-08"
+    assert parsed["runtime_minutes"] == 69
+    # ジャンル行以空格分隔 → 拆为独立标签，而非一个整串
+    assert parsed["genres"] == ["美脚", "美尻", "顔射", "お姉さん"]
+    assert "Luxury TV" not in parsed["actresses"]
+    assert parsed["cover_url"].startswith("https://3xplanetimg")
+
+
+def test_parse_3xplanet_new_layout_unchanged() -> None:
+    """新版 dl.xplanet-specs 布局行为保持不变。"""
+    html = """
+    <html><body>
+      <h1>VRPRD-206 サンプルタイトル</h1>
+      <dl class="xplanet-specs">
+        <dt>品番/Code</dt><dd>VRPRD-206</dd>
+        <dt>発売日/Release Date</dt><dd>2026/08/29</dd>
+        <dt>収録時間/Duration</dt><dd>64min</dd>
+        <dt>メーカー/Studio</dt><dd>VRパラダイス</dd>
+        <dt>ジャンル/Genres</dt><dd>美脚, 美尻, 顔射</dd>
+        <dt>出演者/Actress</dt><dd>皆月ひかる</dd>
+      </dl>
+    </body></html>
+    """
+    parsed = _parse_3xplanet_html(html, "VRPRD-206", "https://3xplanet.com")
+    assert parsed is not None
+    assert parsed["title"] == "サンプルタイトル"
+    assert parsed["release_date"] == "2026-08-29"
+    assert parsed["runtime_minutes"] == 64
+    assert parsed["studio"] == "VRパラダイス"
+    assert parsed["genres"] == ["美脚", "美尻", "顔射"]
+    assert parsed["actresses"] == ["皆月ひかる"]

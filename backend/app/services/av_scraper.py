@@ -773,7 +773,12 @@ def _parse_3xplanet_field(result: dict, key: str, val: str) -> None:
     elif key in ("レーベル", "Label"):
         result["label"] = val
     elif key in ("ジャンル", "Genres"):
-        genres = _clean_jp_en_names(val)
+        # 旧版布局的ジャンル行以空格分隔（实测：'美脚 美尻 顔射 …' 无逗号）；
+        # 新版 dl.xplanet-specs 的 dd 用逗号分隔。
+        if "," not in val and "、" not in val:
+            genres = [g for g in val.split() if g]
+        else:
+            genres = _clean_jp_en_names(val)
         if genres:
             result["genres"] = genres
     elif key in ("出演者", "Actress", "Starring"):
@@ -854,7 +859,9 @@ def _parse_3xplanet_html(html: str, fancode: str, base_url: str | None = None) -
                 current_key = None
 
     # --- Legacy layout: key: value rows inside <article> ---
-    if not result:
+    # 仅当标题之外没有任何字段时才回退旧版解析（h1 阶段必然已写入 title，
+    # 若用 `if not result:` 判断，此块对 h1 正常的页面永远不执行——历史 bug）
+    if set(result) <= {"title"}:
         for p in soup.select("article p"):
             txt = p.get_text(" ", strip=True)
             if ":" not in txt:
