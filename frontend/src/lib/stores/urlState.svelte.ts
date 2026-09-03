@@ -17,8 +17,9 @@
  * that `popstate` increments. That keeps the URL -> state direction alive while
  * fixing its value.
  *
- * `goto()`-driven navigations keep working through the components' own state
- * updates, as before.
+ * `goto()`-driven navigations are covered too: SvelteKit routes them through
+ * `history.pushState` / `history.replaceState`, which are patched below to
+ * bump the same counter.
  *
  * Prefer the non-reactive `realQueryParam()` from `$lib/utils/urlState` for
  * one-shot initialization; use `liveQueryParam()` inside `$derived`.
@@ -31,18 +32,36 @@ if (browser) {
 	const bump = (): void => {
 		version += 1;
 	};
-	// popstate: Back/Forward. SvelteKit's own navigations don't fire this, but
-	// components update their own state on `goto` anyway.
+	// popstate: Back/Forward.
 	window.addEventListener('popstate', bump);
 	window.addEventListener('hashchange', bump);
+
+	// SvelteKit's goto() drives client-side navigation through
+	// history.pushState / history.replaceState — no popstate fires, so without
+	// this patch `liveQueryParam()` consumers (manage sidebar sections,
+	// settings tabs) would never re-evaluate until a full reload (F5).
+	type HistMethod = 'pushState' | 'replaceState';
+	const patchHistory = (name: HistMethod): void => {
+		const orig = history[name].bind(history);
+		history[name] = ((data: unknown, unused: string, url?: string | URL | null) => {
+			orig(data, unused, url);
+			bump();
+		}) as History[HistMethod];
+	};
+	patchHistory('pushState');
+	patchHistory('replaceState');
 }
 
-/** Reactive snapshot of the real query string. Re-reads after popstate. */
+/** Reactive snapshot of the real query string. Re-reads after every navigation. */
 export function liveSearchParams(): URLSearchParams {
-	// Subscribe to the popstate counter so `$derived` re-evaluates.
-	void version;
 	if (!browser) return new URLSearchParams();
-	return new URLSearchParams(window.location.search);
+	const params = new URLSearchParams(window.location.search);
+	// Keep the reactive read of `version` alive: Svelte 5's compiler
+	// dead-code-eliminates `void version`, which silently severed every
+	// `$derived` subscription (menus stopped reacting to goto()/popstate).
+	// A conditional read cannot be eliminated and never fires in practice.
+	if (version < 0) params.set('__nav__', '1');
+	return params;
 }
 
 /** Reactive read of a single query param from the real URL. */
