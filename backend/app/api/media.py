@@ -7,6 +7,7 @@ from pathlib import Path
 import mimetypes
 import os
 import asyncio
+from collections import OrderedDict
 from collections.abc import AsyncGenerator
 
 # 注册 MKV 等常见但 mimetypes 未内置的容器格式
@@ -50,6 +51,48 @@ router = APIRouter(prefix="/media", tags=["media"])
 # In-memory lock set to prevent duplicate concurrent scrape requests for the
 # same media_id. Cleared in finally block to survive exceptions.
 _scraping_media_ids: set[int] = set()
+
+# ---------------------------------------------------------------------------
+# Preview-screenshot cache bounds (GET /{media_id}/screenshot).
+#
+# Hover/scrub previews are *ephemeral UX assets*: dragging across a long
+# movie requests one distinct frame per second, and every miss used to write
+# a JPEG to thumbnails/screenshots/{media_id}/{second}.jpg forever — the dir
+# grew without bound across sessions. Bounds:
+#   - disk:  at most _SCREENSHOT_DISK_MAX files per media directory. When a
+#            NEW second is persisted the oldest files beyond the cap are
+#            unlinked (also converges legacy oversized dirs lazily).
+#   - memory: LRU of the most recent _SCREENSHOT_LRU_MAX frames keyed by
+#             (media_id, second). Re-hovering a hot second is served from
+#             memory with zero disk IO / ffmpeg. Eviction only drops the byte
+#             copy; the on-disk frame stays valid until the disk cap prunes it.
+# A frame for a fixed (media_id, second) is deterministic, so serving from
+# either layer is equivalent — same semantics as the old permanent cache,
+# minus the unbounded growth.
+_SCREENSHOT_DISK_MAX = 800
+_SCREENSHOT_LRU_MAX = 128
+_screenshot_lru: OrderedDict[tuple[int, int], bytes] = OrderedDict()
+
+
+def _prune_screenshot_dir(cache_dir: Path) -> None:
+    """Keep at most _SCREENSHOT_DISK_MAX JPEGs in a media screenshot dir.
+
+    Called *after* persisting a brand-new frame. Sorts by mtime and unlinks
+    the oldest files beyond the cap. Failures are non-fatal (best effort).
+    """
+    try:
+        entries = [(p.stat().st_mtime, p) for p in cache_dir.glob("*.jpg")]
+    except OSError:
+        return
+    if len(entries) <= _SCREENSHOT_DISK_MAX:
+        return
+    entries.sort(key=lambda e: e[0])
+    for _, p in entries[: len(entries) - _SCREENSHOT_DISK_MAX]:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
 
 # Asset directories that client-writable poster/thumbnail paths must live in.
 # Client-supplied paths outside these roots are rejected to prevent arbitrary
@@ -2126,8 +2169,12 @@ async def get_screenshot(
     """Extract a single video frame at timestamp t and return as JPEG.
 
     Uses ffmpeg to seek to the given position and extract one frame.
-    Results are cached on disk per (media_id, rounded_second) to avoid
-    repeated ffmpeg subprocess calls for the same preview position.
+    Results are cached per (media_id, rounded_second) to avoid repeated
+    ffmpeg subprocess calls for the same preview position, but the cache is
+    bounded (ephemeral hover/scrub previews must never grow without limit):
+      - in-process LRU (_SCREENSHOT_LRU_MAX) serves the hottest frames;
+      - on-disk cache keeps at most _SCREENSHOT_DISK_MAX frames per media dir
+        under thumbnails/screenshots/{media_id}/, oldest pruned on write.
     """
     media = await _get_media_or_404(db, media_id)
     if not media.file_path:
@@ -2145,12 +2192,23 @@ async def get_screenshot(
     else:
         timestamp = max(0, t)
 
-    # Disk cache: thumbnails/screenshots/{media_id}/{rounded_second}.jpg
+    second = int(round(timestamp))
+    key = (media_id, second)
     cache_dir = _settings.thumbnail_dir / "screenshots" / str(media_id)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"{int(round(timestamp))}.jpg"
+    cache_file = cache_dir / f"{second}.jpg"
+
+    # Fast path — the frame is still hot in the in-process LRU.
+    hot = _screenshot_lru.get(key)
+    if hot is not None:
+        _screenshot_lru.move_to_end(key)
+        return Response(
+            content=hot,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     if not cache_file.is_file():
+        cache_dir.mkdir(parents=True, exist_ok=True)
         success = await _generate_thumbnail(
             str(path),
             str(cache_file),
@@ -2160,9 +2218,22 @@ async def get_screenshot(
         )
         if not success:
             raise HTTPException(status_code=500, detail="Failed to extract frame")
+        # A brand-new second was persisted: enforce the per-media disk cap
+        # (also lazily converges legacy oversized directories).
+        await asyncio.to_thread(_prune_screenshot_dir, cache_dir)
 
-    return FileResponse(
-        str(cache_file),
+    try:
+        data = cache_file.read_bytes()
+    except OSError:
+        raise HTTPException(status_code=500, detail="Failed to read frame")
+
+    _screenshot_lru[key] = data
+    _screenshot_lru.move_to_end(key)
+    while len(_screenshot_lru) > _SCREENSHOT_LRU_MAX:
+        _screenshot_lru.popitem(last=False)
+
+    return Response(
+        content=data,
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=86400"},
     )
