@@ -1,6 +1,6 @@
 [package]
 name = "vitoice"
-version = "3.0.0"
+version = "3.0.1"
 description = "vitoice - 桌面媒体素材管理应用"
 authors = ["vitoice"]
 edition = "2021"
