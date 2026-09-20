@@ -127,8 +127,13 @@ def main() -> int:
         except Exception as e:
             print(f"Extraction failed: {e}")
             return 1
-        finally:
-            os.unlink(tmp.name)
+
+    # Unlink only after the with block above has closed the temp file handle;
+    # deleting an open file on Windows raises PermissionError (WinError 32).
+    try:
+        os.unlink(tmp.name)
+    except OSError as e:
+        print(f"cleanup warning: {e}")
 
     # Verify
     if ffmpeg.is_file():
