@@ -113,7 +113,8 @@
     // 如果 URL 没变（例如 hoverTime 取整后相同），不做任何事
     if (imgSrc === targetUrl) return;
 
-    // 防抖：120ms 后才开始预加载
+    // 防抖：60ms 后才开始预加载（原本 120ms；已缓存帧几乎瞬时，缩短可让
+    // 缩略图更早出现，又不至于在快速划过时频繁触发新抽帧请求）
     let cancelled = false;
     const timer = setTimeout(() => {
       if (cancelled) return;

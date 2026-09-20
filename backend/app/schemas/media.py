@@ -174,6 +174,9 @@ class MediaResponse(ORMBaseModel):
     file_missing: bool = False
     missing_detected_at: datetime | None = None
     file_modified_at: datetime | None = None
+    # 播放器 seek 决策用：该本地文件是否会被后端转成不支持 Range 的流（HEVC/AC3/
+    # DTS 编码或 MKV 容器）。由详情接口用 ffprobe 探测后填入，非 ORM 字段。
+    needs_transcode: bool = False
     created_at: datetime
     updated_at: datetime
 

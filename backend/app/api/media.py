@@ -769,6 +769,24 @@ async def get_media(media_id: int, db: AsyncSession = Depends(get_db)):
     resp = MediaResponse.model_validate(media)
     # Map video_tags -> tags (Media model uses video_tags, API exposes tags)
     resp.tags = [TagResponse.model_validate(vt.tag) for vt in media.video_tags]
+    # 播放器 seek 决策：本地且文件存在时，探测编码判断是否会被后端转码
+    # （转码流不支持 Range，前端应走 ?start= 重载而非原生 seek）。探测失败时
+    # 退回按扩展名推断，避免打断详情加载。
+    if (
+        media.media_type == MediaType.LOCAL
+        and media.file_path
+        and not media.file_missing
+        and not (media.mime_type or "").startswith("image")
+    ):
+        try:
+            p = Path(media.file_path)
+            if p.is_file():
+                vc, ac = await _probe_codecs(p)
+                resp.needs_transcode = _needs_transcoding(p, vc, ac)
+        except Exception:
+            resp.needs_transcode = bool(
+                media.file_name and media.file_name.lower().endswith(".mkv")
+            )
     return resp
 
 

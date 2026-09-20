@@ -108,6 +108,8 @@ export interface Media {
   source_type: SourceMediaType;
   file_missing: boolean;
   metadata_ignored?: boolean;
+  /** 详情接口探测：该本地文件是否会被后端转码（转码流不支持 Range，seek 需走重载） */
+  needs_transcode?: boolean;
   size: number;
   duration?: number;
   width?: number;
@@ -153,6 +155,7 @@ export type MediaPayload = {
   media_type?: SourceMediaType | null;
   file_missing?: boolean | null;
   metadata_ignored?: boolean | null;
+  needs_transcode?: boolean | null;
   file_size?: number | null;
   duration?: number | null;
   width?: number | null;
@@ -367,6 +370,7 @@ export function normalizeMedia(raw: Partial<MediaPayload> | null | undefined): M
     source_type: raw?.media_type ?? 'local',
     file_missing: !!raw?.file_missing,
     metadata_ignored: !!raw?.metadata_ignored,
+    needs_transcode: !!raw?.needs_transcode,
     size: raw?.file_size ?? 0,
     duration: raw?.duration ?? undefined,
     width: raw?.width ?? undefined,
