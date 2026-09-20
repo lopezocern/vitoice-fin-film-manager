@@ -54,6 +54,8 @@
     mime_type: string | null;
     file_size: number | null;
     file_missing: boolean;
+    /** 后端探测：该本地文件是否会被转码（转码流不支持 Range，seek 需走重载） */
+    needs_transcode?: boolean;
     duration: number | null;
     width: number | null;
     height: number | null;
@@ -111,6 +113,44 @@
   // —— Seek 抑制标志：转码流切换 src 时抑制 video error 事件 ——
   let seeking = $state(false);
 
+  // —— 加载圈延时显示 ——
+  // 直接以 waiting/seeking 显示会每次 seek 都闪圈（转码流 seek 必然短暂停顿）。
+  // 对两者做 250ms 去抖：绝大多数 seek 在此前结束 → 不闪圈；只有停顿超过
+  // 250ms 的真实缓冲/重载才出现加载圈，拖进度体感大幅顺滑。
+  let spinnerVisible = $state(false);
+  let spinnerTimer: ReturnType<typeof setTimeout> | null = null;
+  // —— 用户主动 seek 时的加载圈抑制 —— //
+  // 拖动进度条/方向键步进会立刻让播放器进入缓冲（waiting/seeking）。
+  // 若即时显示加载圈，配合 250ms 去抖仍会在每次拖动时闪一下，观感很差
+  // （尤其转码流：远处 seek 必然重载，等待必超 250ms）。
+  // 对用户主动 seek 开启一个抑制窗口：窗口内绝不显示加载圈（拖动本身
+  // 已有进度反馈）；只在窗口过后仍持续缓冲（真实卡顿/转码未就绪）才提示。
+  let suppressSpinner = $state(false);
+  let suppressSpinnerTimer: ReturnType<typeof setTimeout> | null = null;
+  function suppressSpinnerFor(ms: number): void {
+    suppressSpinner = true;
+    if (suppressSpinnerTimer) clearTimeout(suppressSpinnerTimer);
+    suppressSpinnerTimer = setTimeout(() => {
+      suppressSpinner = false;
+      suppressSpinnerTimer = null;
+    }, ms);
+  }
+  $effect(() => {
+    const busy = waiting || seeking;
+    if (spinnerTimer) {
+      clearTimeout(spinnerTimer);
+      spinnerTimer = null;
+    }
+    // 用户 seek 抑制窗口内不显示加载圈（也不排队），窗口过后若仍 busy 再计时。
+    if (busy && !suppressSpinner) {
+      spinnerTimer = setTimeout(() => {
+        spinnerVisible = true;
+      }, 250);
+    } else {
+      spinnerVisible = false;
+    }
+  });
+
   // —— 全局偏好（localStorage 持久化）——
   let volume = $state(loadPref('vitoice:volume', 1));
   let muted = $state(loadPref('vitoice:muted', false));
@@ -134,6 +174,17 @@
   // "是否转码"的判断一致（后端按 codec 探测，前端只能按扩展名猜）。
   let seekVerify: { target: number; before: number } | null = null;
   let wasPlayingBeforeSeek = false; // seek 前是否在播放，用于 seek 后恢复
+
+  // —— 转码流 seek 期间的目标帧预览（消除黑屏观感）——
+  // 转码流 seek 走 streamStart + ?start= 重载，src 变更瞬间 video 变黑、
+  // 直到后端转码产出新首帧。若在重载期间于视频之上叠加显示"目标时间点"
+  // 的截图帧（复用 /screenshot 端点，二次拖拽已命中磁盘缓存），观感从
+  // "黑屏等待"变为"画面停留/瞬移到目标帧"，新流就绪（loadedmetadata）后隐藏。
+  let seekPreviewUrl = $state('');
+  function screenshotUrlFor(mediaId: string | number | null | undefined, t: number): string {
+    if (mediaId == null) return '';
+    return `${BASE_URL}/media/${mediaId}/screenshot?t=${Math.round(Math.max(0, t))}`;
+  }
 
   // —— 控制层可见性（三层）——
   let controlsVisible = $state(true);
@@ -329,10 +380,13 @@
   });
 
   // —— 转码流相关派生值 ——
-  // 检测文件是否需要转码（MKV 容器浏览器支持不稳定）
+  // 检测文件是否需要转码（后端按编码探测，HEVC/AC3/DTS 或 MKV 容器 → needs_transcode）。
+  // 转码流不支持服务端 Range、原生 seek 会被浏览器拒绝（闪回），需走 ?start= 重载。
+  // seekable 预检/700ms 验证仅作运行时兜底（见 seek 函数）。
   // 网络播放时始终使用原生 seek（代理支持 Range 请求，HLS 由 hls.js 管理）
   const needsTranscoding = $derived(
-    media && !isNetworkPlayback ? (media.file_name?.toLowerCase().endsWith('.mkv') ||
+    media && !isNetworkPlayback ? (media.needs_transcode ||
+             media.file_name?.toLowerCase().endsWith('.mkv') ||
              (media.mime_type ?? '').includes('matroska')) : false
   );
   // 显示用的时间（考虑转码流偏移量）
@@ -638,8 +692,9 @@
     }
   }
   function onLoadedMetadata(): void {
-    // 新流已加载，清除 seek 抑制标志
+    // 新流已加载，清除 seek 抑制标志与目标帧预览（转码 seek 结束）
     seeking = false;
+    seekPreviewUrl = '';
     if (!videoEl || !media) return;
 
     if (streamStart > 0) {
@@ -792,6 +847,10 @@
     // F4 fix: guard against NaN (metadata not loaded) — never write NaN
     // into the video element.
     if (!Number.isFinite(t)) return;
+    // 用户主动 seek → 开启加载圈抑制窗口。拖动进度条/步进期间及松开后短暂
+    // 时间内不显示加载圈，避免拖动瞬间闪圈破坏观感；只有窗口过后仍在缓冲
+    // （真实卡顿/转码未就绪）才会出现加载提示。
+    suppressSpinnerFor(1000);
     // 时长基准：优先 displayDuration（media.duration，真实总时长）。
     // 注意不能用 video.duration 优先——对后端转码流（前端误判为直连时），
     // video.duration 只显示已缓冲部分（实测 HEVC MP4 = 10s），会把 seek 目标
@@ -817,6 +876,8 @@
       if (!isBuffered) {
         // 未缓冲：更新 streamStart 触发重新加载
         wasPlayingBeforeSeek = !paused;
+        // 重载期间叠加目标帧预览，避免黑屏
+        seekPreviewUrl = screenshotUrlFor(media?.id, target);
         // 设置 seeking 标志：src 切换期间浏览器会中止上一个流请求，
         // 产生 ERR_ABORTED，在 onVideoError 中据此静默忽略
         seeking = true;
@@ -842,6 +903,27 @@
     // 并验证浏览器是否接受——若被拒绝（该流实际不支持 Range，如后端转码流）
     // 自动降级为 streamStart 重载式 seek，彻底解决"拖动进度条跳回开头"。
     if (videoEl) {
+      // seekable 预检。不支持服务端 Range 的流（后端转码 HEVC/AC3 等，即使扩展名
+      // 非 .mkv，video.duration 也常为 Infinity、seekable 只覆盖已缓冲或为空），
+      // 越界设置 currentTime 会被浏览器拒绝并回退到原位置（"跳回上一个时间点"）。
+      // 元数据就绪后目标仍不可寻 → 直接 ?start= 重载，跳过会闪回的原生尝试。
+      let reachable = false;
+      try {
+        for (let i = 0; i < videoEl.seekable.length; i++) {
+          if (target >= videoEl.seekable.start(i) - 1 && target <= videoEl.seekable.end(i) + 1) {
+            reachable = true;
+            break;
+          }
+        }
+      } catch {
+        reachable = false;
+      }
+      // 仅在本地播放时走重载（?start= 只对后端本地流生效）；网络直连/HLS 保持捕获
+      // seekable 已达元数据就绪态。target<=1 时不重载（回到开头也一样，省一次舍弃）。
+      if (videoEl.readyState >= 1 && !reachable && !isNetworkPlayback && target > 1) {
+        fallbackTranscodeSeek(target);
+        return;
+      }
       const before = videoEl.currentTime;
       videoEl.currentTime = target;
       currentTime = target;
@@ -870,6 +952,8 @@
   // 转码式 seek：更新 streamStart 触发 src 带 ?start= 重载（后端从该位置开始转码）
   function fallbackTranscodeSeek(target: number): void {
     wasPlayingBeforeSeek = !paused;
+    // 重载期间叠加目标帧预览，避免黑屏
+    seekPreviewUrl = screenshotUrlFor(media?.id, target);
     // 设置 seeking 标志：src 切换期间浏览器会中止上一个流请求，
     // 产生 ERR_ABORTED，在 onVideoError 中据此静默忽略
     seeking = true;
@@ -1694,9 +1778,13 @@
     if (seekFallbackTimer) clearTimeout(seekFallbackTimer);
     if (seekVerifyTimer) clearTimeout(seekVerifyTimer);
     if (flashTimer) clearTimeout(flashTimer);
+    if (spinnerTimer) clearTimeout(spinnerTimer);
+    if (suppressSpinnerTimer) clearTimeout(suppressSpinnerTimer);
     seekFallbackTimer = null;
     seekVerifyTimer = null;
     flashTimer = null;
+    spinnerTimer = null;
+    suppressSpinnerTimer = null;
 
     // 截图 / 下载的 blob URL
     for (const url of objectUrls) URL.revokeObjectURL(url);
@@ -1820,6 +1908,10 @@
           onended={onEnded}
           onerror={onVideoError}
         ></video>
+        <!-- 转码流 seek 重载期间叠加目标帧预览（避免黑屏；新流 ready 后隐藏） -->
+        {#if !isImage && seeking && seekPreviewUrl}
+          <div class="seek-preview" style={`background-image:url('${seekPreviewUrl}')`}></div>
+        {/if}
       {/if}
 
       <!-- 限制内容遮罩 -->
@@ -1843,8 +1935,8 @@
         <div class="speed-badge">2× 长按快进</div>
       {/if}
 
-      <!-- 缓冲 / Seek 加载指示 -->
-      {#if (waiting || seeking) && !isImage}
+      <!-- 缓冲 / Seek 加载指示（250ms 去抖，避免每次 seek 闪圈） -->
+      {#if spinnerVisible && !isImage}
         <div class="spinner big"></div>
       {/if}
 
@@ -2341,9 +2433,24 @@
     height: 100%;
     object-fit: contain;
     background: #000;
+    /* WebView2 硬件视频表面会截获视频矩形内的鼠标事件（超大/转码视频常见，
+       表现为 hover 唤不醒顶部/底部控制栏）。让视频透传指针事件给 .stage——
+       后者挂载了全部交互，顶部栏/底部控制栏是 stage 的独立兄弟元素不受影响。 */
+    pointer-events: none;
   }
   .media-image {
     object-fit: contain;
+  }
+  /* 转码流 seek 重载期间的目标帧预览层：盖住视频（黑屏），但低于字幕/控制层 */
+  .seek-preview {
+    position: absolute;
+    inset: 0;
+    background-color: #000;
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    z-index: 1;
+    pointer-events: none;
   }
 
   /* 顶部栏 */
