@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -152,9 +152,13 @@ async def get_stats_summary(db: AsyncSession = Depends(get_db)):
     result = await db.execute(no_poster_query)
     no_poster_count = result.scalar() or 0
 
+    # 口径与元数据工作台「待处理」一致：排除已忽略项，缺封面或缺元数据均计入。
+    # 不排除网络媒体（NETWORK）——工作台待处理列表同样包含网络媒体。
     no_metadata_query = select(func.count(Media.id)).where(
-        *base_issue,
-        Media.scrape_data.is_(None),
+        Media.is_deleted == False,  # noqa: E712
+        Media.series_id.is_(None),
+        Media.metadata_ignored == False,  # noqa: E712
+        or_(Media.poster_path.is_(None), Media.scrape_data.is_(None)),
     )
     if restricted_ids:
         no_metadata_query = no_metadata_query.where(~Media.library_id.in_(restricted_ids))

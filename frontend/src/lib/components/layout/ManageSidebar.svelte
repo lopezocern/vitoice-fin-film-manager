@@ -8,6 +8,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { sidebar } from '$lib/stores/sidebar.svelte';
+  import { librariesStore } from '$lib/stores/libraries.svelte';
   import { liveQueryParam } from '$lib/stores/urlState.svelte';
   import { realSearchParams } from '$lib/utils/urlState';
   import { client } from '$lib/api/client';
@@ -31,7 +32,6 @@
   let navCounts = $state<{ missing: number; noPoster: number; noMetadata: number; media: number; deleted: number; runningTasks: number; local: number; network: number }>({
     missing: 0, noPoster: 0, noMetadata: 0, media: 0, deleted: 0, runningTasks: 0, local: 0, network: 0,
   });
-  let countsLoaded = false;
   async function loadNavCounts(): Promise<void> {
     try {
       const resp = await client.get<{
@@ -52,10 +52,10 @@
       // silent
     }
   }
+  // 数据变更时（librariesStore.revision++，由各操作 notifyChanged/reload 触发）
+  // 重新拉取 /stats/summary，让侧边栏徽标与问题中心/元数据处理后的实际计数保持同步。
   $effect(() => {
-    if (countsLoaded) return;
-    countsLoaded = true;
-    // untrack：loadNavCounts 同步部分若读写 $state 会被追踪进 effect 依赖面
+    librariesStore.revision;
     untrack(() => void loadNavCounts());
   });
   const issueCount = $derived(navCounts.missing + navCounts.noPoster + navCounts.noMetadata);

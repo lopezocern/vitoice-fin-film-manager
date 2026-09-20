@@ -4,6 +4,7 @@
   import { client, ApiError } from '$lib/api/client';
   import { mediaApi, type Media } from '$lib/api/media';
   import { librariesApi, type Library } from '$lib/api/libraries';
+  import { librariesStore } from '$lib/stores/libraries.svelte';
   import { tasksApi, type Task, type TaskStatus } from '$lib/api/tasks';
   import { formatDate, formatSize } from '$lib/utils/format';
   import { imageFallback } from '$lib/utils/image-fallback';
@@ -120,6 +121,9 @@
       await action();
       notice = success;
       await load();
+      // 触发全局数据通知：让侧边栏（/stats/summary 徽标）、媒体页等
+      // 监听 librariesStore.revision 的视图同步刷新处理后的计数。
+      librariesStore.notifyChanged();
     } catch (e) {
       notice = e instanceof ApiError ? e.message : '操作失败';
     } finally {
