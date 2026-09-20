@@ -63,8 +63,11 @@ jobs:
           Copy-Item -Recurse backend/dist/vitoice-backend src-tauri/resources/backend/vitoice-backend
 
       # ---- Tauri build (NSIS) + attach artifact to GitHub Release ----
+      # 必须把执行目录切到 src-tauri（beforeBuildCommand `cd ../frontend` 依赖于此），
+      # tauri-action 的 projectPath 只用于定位配置、并不会 chdir。
       - name: Build installer & upload to Release
         uses: tauri-apps/tauri-action@v0
+        working-directory: src-tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -79,5 +82,4 @@ jobs:
             - 产物由 GitHub Actions 从 `main` 分支对应的 tag 自动构建。
           releaseDraft: true   # 先进草稿，人工确认后再公开
           prerelease: false
-          projectPath: ./src-tauri
           args: '--bundles nsis'
