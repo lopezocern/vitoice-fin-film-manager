@@ -1,0 +1,83 @@
+name: Release
+
+# 在推送 v* tag（如 v3.0.0）时自动构建 Windows 安装包并发布到 GitHub Releases。
+# 手动触发（workflow_dispatch）也可用；产物先进 Draft，确认后再公开。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    name: Build & publish (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Rust (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+
+      # ---- Frontend (includes @tauri-apps/cli, runs beforeBuildCommand) ----
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # ---- Backend runtime deps + PyInstaller (not declared in pyproject) ----
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install PyInstaller
+
+      # ffmpeg/ffprobe are git-ignored (too large); download on the fly.
+      - name: Download ffmpeg binaries
+        run: python backend/bin/download_ffmpeg.py
+
+      # ---- Sidecar: build onedir + sync into Tauri resources ----
+      - name: Build backend sidecar (PyInstaller)
+        working-directory: backend
+        run: python -m PyInstaller --noconfirm --clean vitoice-backend.spec
+
+      - name: Sync sidecar to Tauri resources
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force src-tauri/resources/backend/vitoice-backend -ErrorAction SilentlyContinue
+          Copy-Item -Recurse backend/dist/vitoice-backend src-tauri/resources/backend/vitoice-backend
+
+      # ---- Tauri build (NSIS) + attach artifact to GitHub Release ----
+      - name: Build installer & upload to Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__  # 由 tauri-action 替换为应用的当前版本号
+          releaseName: 'vitoice v__VERSION__'
+          releaseBody: |
+            ## 安装
+            下载 `*-x64-setup.exe` 运行即可。
+
+            ## 说明
+            - 自动更新：本包为 `draft`，确认无误后在 Release 页面点 **Publish release** 公开。
+            - 产物由 GitHub Actions 从 `main` 分支对应的 tag 自动构建。
+          releaseDraft: true   # 先进草稿，人工确认后再公开
+          prerelease: false
+          projectPath: ./src-tauri
+          args: '--bundles nsis'
