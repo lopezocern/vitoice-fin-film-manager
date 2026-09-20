@@ -1,9 +1,17 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { afterNavigate, goto } from '$app/navigation';
   import { page } from '$app/stores';
   import AppShell from '$lib/components/layout/AppShell.svelte';
+  import { notifyUrlChanged } from '$lib/stores/urlState.svelte';
+
+  // SvelteKit 导航（goto/链接/pushState/replaceState/Back 中的前进）后刷新
+  // 反应式 URL 读取（urlState 的 liveQueryParam）。不能再靠 patch history 实现，
+  // 否则与 SvelteKit 自身的 history 拦截冲突，引发 effect 无限重入导致界面卡在加载态。
+  afterNavigate(() => {
+    notifyUrlChanged();
+  });
 
   let { children } = $props();
 

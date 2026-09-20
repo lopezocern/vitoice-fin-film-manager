@@ -26,16 +26,36 @@ def test_parse_av_fancode_special_families(filename: str, expected: str) -> None
     assert parse_av_fancode(filename) == expected
 
 
-def test_find_3xplanet_detail_url_accepts_relative_prefixed_slug() -> None:
-    html = '<a href="/uncen-leaked-259luxu-1100/">259LUXU-1100</a>'
-
-    assert _find_3xplanet_detail_url(
-        html, "259LUXU-1100", "https://3xplanet.com"
-    ) == "https://3xplanet.com/uncen-leaked-259luxu-1100/"
+@pytest.mark.parametrize(
+    ("detail_html", "fancode", "expected"),
+    [
+        # 数字前缀番号：命中 uncen-leaked- 分类 slug
+        (
+            '<a href="/uncen-leaked-259luxu-1100/">259LUXU-1100</a>',
+            "259LUXU-1100",
+            "https://3xplanet.com/uncen-leaked-259luxu-1100/",
+        ),
+        # 字母前缀番号（MDG-166）同样命中——旧逻辑只认数字前缀导致这类番号漏掉
+        (
+            '<a href="/uncen-leaked-mdg-166/">(Mosaic Reduced) MDG-166</a>',
+            "MDG-166",
+            "https://3xplanet.com/uncen-leaked-mdg-166/",
+        ),
+    ],
+)
+def test_find_3xplanet_detail_url_prefixed_slug(
+    detail_html: str, fancode: str, expected: str
+) -> None:
+    assert _find_3xplanet_detail_url(detail_html, fancode, "https://3xplanet.com") == expected
 
 
 @pytest.mark.asyncio
-async def test_fetch_3xplanet_uses_special_direct_slugs() -> None:
+async def test_fetch_3xplanet_bare_and_prefixed_slugs() -> None:
+    """直接 slug 与 uncen-leaked- 前缀 slug 的抓取顺序。
+
+    命中顺序：先试裸 slug，404 后回退到分类前缀变体。覆盖 Tokyo-Hot / 数字前缀 /
+    FC2 / 字母前缀（MDG-166，仅存在于 uncen-leaked- 下）四类番号。
+    """
     requested: list[str] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -44,6 +64,7 @@ async def test_fetch_3xplanet_uses_special_direct_slugs() -> None:
             "https://3xplanet.com/n0476/": "tokyo-hot-page",
             "https://3xplanet.com/uncen-leaked-259luxu-1100/": "luxu-page",
             "https://3xplanet.com/fc2-ppv-4903567/": "fc2-page",
+            "https://3xplanet.com/uncen-leaked-mdg-166/": "leaked-page",
         }
         body = pages.get(str(request.url))
         return httpx.Response(200 if body else 404, text=body or "")
@@ -52,9 +73,13 @@ async def test_fetch_3xplanet_uses_special_direct_slugs() -> None:
         assert await _fetch_3xplanet_page(client, "N0476") == "tokyo-hot-page"
         assert await _fetch_3xplanet_page(client, "259LUXU-1100") == "luxu-page"
         assert await _fetch_3xplanet_page(client, "FC2-PPV-4903567") == "fc2-page"
+        assert await _fetch_3xplanet_page(client, "MDG-166") == "leaked-page"
 
     assert "https://3xplanet.com/259luxu-1100/" in requested
     assert "https://3xplanet.com/uncen-leaked-259luxu-1100/" in requested
+    # 字母前缀番号：裸 slug 先 404，随后命中 uncen-leaked- 变体
+    assert "https://3xplanet.com/mdg-166/" in requested
+    assert "https://3xplanet.com/uncen-leaked-mdg-166/" in requested
 
 
 _LEGACY_3XPLANET_HTML = """

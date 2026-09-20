@@ -672,9 +672,12 @@ def _3xplanet_slug_candidates(fancode: str) -> list[str]:
     """Return likely 3xplanet slugs in cheapest-first lookup order."""
     slug = fancode.strip().lower().replace("_", "-")
     candidates = [slug]
-    # Leaked releases commonly live below this category-prefixed slug.
-    if re.fullmatch(r"\d{2,5}[a-z]{2,6}-[a-z]?\d{2,5}", slug):
-        candidates.append(f"uncen-leaked-{slug}")
+    # Leaked/uncensored releases commonly live below a category-prefixed slug
+    # (``uncen-leaked-{fancode}``) and is often the ONLY live variant — the bare
+    # slug 404s. Try it for every fancode: an extra 404 is cheap, and whether a
+    # fancode is digit- or letter-prefixed does not predict the category
+    # (letter-prefixed codes like MDG-166 live under uncen-leaked too).
+    candidates.append(f"uncen-leaked-{slug}")
     return candidates
 
 

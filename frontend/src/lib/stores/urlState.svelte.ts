@@ -32,24 +32,26 @@ if (browser) {
 	const bump = (): void => {
 		version += 1;
 	};
-	// popstate: Back/Forward.
+	// popstate: Back/Forward. hashchange: fragment changes.
 	window.addEventListener('popstate', bump);
 	window.addEventListener('hashchange', bump);
+	// NOTE: do NOT patch history.pushState/replaceState here. SvelteKit
+	// installs its own override of those methods; wrapping them on top makes
+	// SvelteKit's internal navigate() route back through this wrapper and
+	// re-trigger the counter on every navigation, forming an infinite
+	// `effect_update_depth_exceeded` loop that freezes the UI on its loading
+	// skeleton. React to navigations via afterNavigate() (see notifyUrlChanged).
+}
 
-	// SvelteKit's goto() drives client-side navigation through
-	// history.pushState / history.replaceState — no popstate fires, so without
-	// this patch `liveQueryParam()` consumers (manage sidebar sections,
-	// settings tabs) would never re-evaluate until a full reload (F5).
-	type HistMethod = 'pushState' | 'replaceState';
-	const patchHistory = (name: HistMethod): void => {
-		const orig = history[name].bind(history);
-		history[name] = ((data: unknown, unused: string, url?: string | URL | null) => {
-			orig(data, unused, url);
-			bump();
-		}) as History[HistMethod];
-	};
-	patchHistory('pushState');
-	patchHistory('replaceState');
+/**
+ * Bump the reactive URL version after a SvelteKit navigation.
+ * The root layout calls this from afterNavigate; goto()/links/pushState/
+ * replaceState don't fire popstate, so without it liveQueryParam() consumers
+ * (manage sidebar sections, settings tabs) never re-evaluate after navigation
+ * until a full reload (F5).
+ */
+export function notifyUrlChanged(): void {
+	if (browser) version += 1;
 }
 
 /** Reactive snapshot of the real query string. Re-reads after every navigation. */
