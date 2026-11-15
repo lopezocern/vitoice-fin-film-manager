@@ -32,6 +32,17 @@
     return settingsStore.maskRestricted && restrictedLibIds.has(String(media.library_id));
   }
 
+  /** 缩略图是否走播放：有 onplay 且非图片（与 PosterWall/观看中心同一契约）。 */
+  function canPlay(media: Media): boolean {
+    return !!onplay && media.type !== 'image';
+  }
+
+  /** 缩略图点击：能播则播，否则进详情（图片等不可播媒体回落详情页）。 */
+  function playMedia(media: Media): void {
+    if (canPlay(media)) onplay?.(media);
+    else onSelect?.(media);
+  }
+
   function typeLabel(t: Media['type']): string {
     if (t === 'video') return '视频';
     if (t === 'audio') return '音频';
@@ -60,10 +71,19 @@
         <div class="col col-thumb">
           <div
             class="mini-thumb"
-            title={media.type !== 'image' ? '点击封面播放' : '查看详情'}
+            title={canPlay(media) ? '点击封面播放' : '查看详情'}
+            role="button"
+            tabindex="-1"
             onclick={(e) => {
               e.stopPropagation();
-              if (media.type !== 'image') onplay?.(media);
+              playMedia(media);
+            }}
+            onkeydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                playMedia(media);
+              }
             }}
           >
             {#if media.series_id != null}
@@ -77,6 +97,11 @@
             {/if}
             {#if !media.file_missing && (media.source_type === 'network' || media.source_type === 'both')}
               <span class="net-tag">{media.source_type === 'both' ? '本+网' : '网'}</span>
+            {/if}
+            {#if canPlay(media)}
+              <span class="play-hint" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
+              </span>
             {/if}
             {#if shouldMask(media)}
               <div class="content-mask" title="限制内容 — 点击查看">
@@ -243,6 +268,25 @@
     padding: 0 4px;
     border-radius: 3px;
     line-height: 1.5;
+  }
+
+  /* 缩略图 hover 播放提示（与 PosterWall/观看中心一致） */
+  .play-hint {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    opacity: 0;
+    transition: opacity 160ms ease;
+    pointer-events: none;
+  }
+
+  .mini-thumb:hover .play-hint {
+    opacity: 1;
   }
 
   .mini-thumb img {

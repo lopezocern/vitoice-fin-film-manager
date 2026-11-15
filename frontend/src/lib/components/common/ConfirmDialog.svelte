@@ -70,7 +70,6 @@
       aria-modal="true"
       aria-labelledby="confirm-title"
       tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
     >
       <div class="dialog-head">
         <div class="icon-wrap" class:danger aria-hidden="true">

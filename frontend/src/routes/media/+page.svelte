@@ -12,6 +12,7 @@
   import { settingsStore } from '$lib/stores/settings.svelte';
   import { librariesStore } from '$lib/stores/libraries.svelte';
   import { mediaScroll } from '$lib/stores/mediaScroll.svelte';
+  import { mediaQueue } from '$lib/stores/mediaQueue.svelte';
   import { pageList, maxVisiblePages as maxVisiblePagesFor, MEDIA_PAGER_METRICS } from '$lib/utils/pagination';
   import FilterBar from '$lib/components/media/FilterBar.svelte';
   import PosterWall from '$lib/components/media/PosterWall.svelte';
@@ -208,7 +209,7 @@
     items = mediaScroll.savedItems;
     seriesItems = mediaScroll.savedSeries ?? [];
     page = mediaScroll.page || 1;
-    hasMore = mediaScroll.savedItems.length >= pageSize;
+    hasMore = mediaScroll.savedItems.length >= untrack(() => pageSize);
   }
 
   // 搜索（防抖）—— 从 URL 初始化
@@ -295,6 +296,15 @@
   const tagMap = $derived(
     Object.fromEntries(tags.map((t) => [t.id, t.name]))
   );
+
+  // 浏览队列：随当前展示顺序同步媒体，供详情页 / 播放器做「上一个 / 下一个」。
+  // 混合模式下 unifiedItems = 剧集在前 + 媒体在后，媒体的相对顺序与 items 一致，直接用 items 即可。
+  $effect(() => {
+    mediaQueue.items = items.map((m) => ({
+      id: String(m.id),
+      title: m.title ?? m.filename ?? ''
+    }));
+  });
 
   const heading = $derived(navNode.label || '全部媒体');
 
@@ -589,37 +599,19 @@
       snapshotGuardUntil = Date.now() + 800;
       loading = false;
       requestAnimationFrame(() => {
-        restoreScroll();
         const el = document.querySelector<HTMLElement>('.media-content');
         if (!el) return;
-        let settled = false;
-        let pending = 0;
-        const realign = (): void => { if (!settled) restoreScroll(); };
-        const onImgDone = (): void => {
-          pending--;
-          if (pending <= 0) {
-            settled = true;
-            restoreScroll();
-          } else {
-            realign();
-          }
-        };
-        for (const img of Array.from(el.querySelectorAll('img'))) {
-          // 已加载（含缓存）的图片不参与等待
-          if (img.complete && img.naturalWidth > 0) continue;
-          pending++;
-          img.addEventListener('load', onImgDone, { once: true });
-          img.addEventListener('error', onImgDone, { once: true });
-        }
-        if (pending === 0) {
-          settled = true; // 所有图片已就绪，布局稳定
-          return;
-        }
-        // 兜底：3s 后强制对齐（避免个别图片一直不加载）
-        setTimeout(() => {
-          settled = true;
-          restoreScroll();
-        }, 3000);
+        restoreScroll();
+        // 布局稳定器：图片加载 / 卡片比例应用 / 字体换行都会改变内容高度，
+        // 锚点卡片的绝对位置随之漂移，一次性对齐会落偏。
+        // 监听内容尺寸变化，每次变化后重新对齐；3s 后停止（个别图片始终不加载
+        // 时的兜底）。比"等所有 <img> onload"更可靠——懒加载的离屏图片永远不会
+        // 触发 load，等它们只会白等到超时，且期间位置一直是错的。
+        const wall = el.firstElementChild;
+        if (!wall) return;
+        const ro = new ResizeObserver(() => restoreScroll());
+        ro.observe(wall);
+        window.setTimeout(() => ro.disconnect(), 3000);
       });
     } else {
       // 无快照（极端情况）：补页 + 锚点对齐
@@ -730,7 +722,7 @@
 
   // 视图切换（海报墙/列表/时间轴）独立触发重载：不依赖上面 sig 的 JSON 比较——
   // 视图决定加载策略（时间轴全量/其他分页），切换必须可靠地触发 loadMedia。
-  let lastView = view;
+  let lastView = untrack(() => view);
   $effect(() => {
     const v = view;
     if (lastView !== v) {
@@ -881,13 +873,15 @@
   // 滚动位置一步到位——彻底规避"返回后异步加载导致位置漂移"。
   function saveScrollState(preferId?: string): void {
     const container = document.querySelector<HTMLElement>('.media-content');
-    mediaScroll.top = container?.scrollTop ?? 0;
+    // 只有媒体库视图才有滚动容器。观看中心/无列表时若仍写入快照，会留下一份
+    // 空 items 快照；返回时恢复逻辑把它当作有效数据，媒体库会渲染成空白。
+    if (!container) return;
+    mediaScroll.top = container.scrollTop;
     mediaScroll.page = page;
     mediaScroll.anchorId = '';
     mediaScroll.anchorOffset = 0;
     mediaScroll.savedItems = items;
     mediaScroll.savedSeries = seriesItems;
-    if (!container) return;
     // 1) 首选：被点击的卡片（精确对应"用户在看的位置"）
     let card: HTMLElement | null = null;
     if (preferId) {
@@ -930,7 +924,8 @@
     goto(`/player?id=${m.id}&from=${from}`);
   }
   function onSelectSeries(s: Series): void {
-    saveScrollState();
+    // 与 UnifiedWall 的 series- 前缀命名空间保持一致，剧集卡片也能精确锚定
+    saveScrollState(`series-${s.id}`);
     goto(`/series/${s.id}`);
   }
   function gotoPage(p: number): void {
@@ -1248,7 +1243,7 @@
         </a>
       </div>
     {:else if showSeriesInAll && unifiedItems.length > 0}
-      <UnifiedWall items={unifiedItems} onSelectSeries={onSelectSeries} onSelectMedia={onSelect} mode={view} {density} />
+      <UnifiedWall items={unifiedItems} onSelectSeries={onSelectSeries} onSelectMedia={onSelect} onplay={onPlayMedia} mode={view} {density} />
     {:else if showSeriesInAll && unifiedItems.length === 0}
       <div class="state anim-fade-in">
         <div class="state-title">暂无媒体</div>

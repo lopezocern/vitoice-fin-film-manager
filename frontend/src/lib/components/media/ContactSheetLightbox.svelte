@@ -69,6 +69,9 @@
     tabindex="-1"
     use:portal
     onclick={onBackdropClick}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') close();
+    }}
   >
     <header class="lb-head">
       <span class="lb-title">{title ?? '缩略图集'}</span>

@@ -14,7 +14,6 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
-from app.config import settings
 from app.database import async_session
 from app.models.media import Media
 from app.models.subtitle import Subtitle

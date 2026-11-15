@@ -7,7 +7,9 @@ never writes to media_urls / media_import — resolution results are returned
 to the caller, who decides whether to add them through the normal network
 source APIs.
 """
-from fastapi import APIRouter, Depends, HTTPException
+import re
+
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +35,7 @@ class AdultRefreshRequest(BaseModel):
     base_url: str | None = None
 
 
-_ADULT_SERVERS = ("vidhide", "turboplay", "streamwish")
+_ADULT_SERVERS = ("vidhide", "turboplay", "streamwish", "dood")
 
 
 async def _adult_enabled(db: AsyncSession) -> bool:
@@ -82,12 +84,15 @@ async def adult_resolve(payload: AdultResolveRequest):
 async def adult_refresh(payload: AdultRefreshRequest):
     """Re-resolve an adult media's sources and sync them onto its MediaUrl rows.
 
-    For each resolved server (vidhide/turboplay/streamwish):
+    For each resolved server (vidhide/turboplay/streamwish/dood):
       - an existing source URL with a matching platform is updated in place
         (new signed URL, is_expired cleared);
       - a missing platform gets a NEW source URL added.
     This gives the player a multi-source switch list and refreshes the
     36h-expiring signed URLs in one click.
+
+    ``dood`` stores its *embed page* rather than a stream link: the mp4 is
+    IP-bound and short-lived, so it is minted on demand at playback time.
 
     ISOLATION: gated by network_allow_adult (403) and only ever touches
     adult-platform URLs on the target media.
@@ -229,3 +234,26 @@ async def adult_refresh(payload: AdultRefreshRequest):
         "demoted_pages": demoted_pages,
         "refresh": refresh_result,
     }
+
+
+@router.get("/adult-page")
+async def adult_page(fancode: str):
+    """Return the aggregator article page for a fancode.
+
+    Used as the last-resort "open on the original site" fallback: some CDN
+    edges reject signed HLS URLs (403/5xx) based on the viewer's exit network
+    / ASN, which no proxy-side header can fix. Opening the article page lets
+    the user play it in the original site instead.
+
+    Gated by `network_allow_adult` like the other endpoints.
+    """
+    code = (fancode or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_-]{2,40}", code):
+        raise HTTPException(status_code=422, detail="番号格式不正确")
+
+    async with async_session() as db:
+        if not await _adult_enabled(db):
+            raise HTTPException(status_code=403, detail="成人网络源功能未开启（设置 → 内容管理）")
+        base = await _adult_base_url(db, None)
+
+    return {"fancode": code, "page_url": f"{base.rstrip('/')}/jav/{code}/"}

@@ -7,10 +7,12 @@
   import { goto } from '$app/navigation';
   import { untrack } from 'svelte';
   import { librariesApi, type Library, type TreeNode } from '$lib/api/libraries';
+  import { ApiError } from '$lib/api/client';
   import { mediaApi } from '$lib/api/media';
   import { formatSize } from '$lib/utils/format';
   import { errorMessage } from '$lib/utils/errors';
   import { liveQueryParam } from '$lib/stores/urlState.svelte';
+  import { realSearchParams } from '$lib/utils/urlState';
 
   interface Props {
     libraries: Library[];
@@ -30,11 +32,16 @@
   const currentManageSection = $derived(liveQueryParam('section') || 'assets');
 
   function gotoDirectory(libId: string, relPath = ''): void {
-    const section = currentManageSection === 'files' ? 'files' : 'assets';
-    const path = relPath
-      ? `/manage?section=${section}&lib=${libId}&dir=${encodeURIComponent(relPath)}`
-      : `/manage?section=${section}&lib=${libId}`;
-    void goto(path);
+    // 在**当前**查询参数上合并，而不是从零拼 URL：
+    // 之前重建 URL 会把右侧的 搜索词 / 视图 / 标签 / 排序 / 列配置 全部丢掉，
+    // 表现为"点侧栏目录，右侧筛选莫名被清空"。
+    const params = realSearchParams();
+    params.set('section', currentManageSection === 'files' ? 'files' : 'assets');
+    params.set('lib', libId);
+    if (relPath) params.set('dir', relPath);
+    else params.delete('dir');
+    params.delete('page'); // 换目录必须回到第 1 页
+    void goto(`/manage?${params.toString()}`);
   }
 
   // ---- Tree state ----
@@ -95,13 +102,28 @@
       const nodes = await librariesApi.tree(libId, relPath);
       loadedChildren = new Map(loadedChildren).set(key, nodes);
       loadErrors.delete(key);
-    } catch {
-      loadErrors = new Map(loadErrors).set(key, '加载失败');
+    } catch (e) {
+      // 最常见的失败不是"网络挂了"，而是库根路径在当前机器上不存在
+      // （移动硬盘未插、库从另一台机器迁移过来）。给出可操作的提示，
+      // 而不是一句笼统的"加载失败"。
+      loadErrors = new Map(loadErrors).set(key, describeTreeError(e));
     } finally {
       const next = new Set(loadingPaths);
       next.delete(key);
       loadingPaths = next;
     }
+  }
+
+  function describeTreeError(e: unknown): string {
+    if (e instanceof ApiError) {
+      const body = e.body as { detail?: unknown } | null | undefined;
+      const detail = typeof body?.detail === 'string' ? body.detail : '';
+      if (/root_path/i.test(detail)) return '路径不可用（硬盘未挂载或目录已移动）';
+      if (e.status === 404) return '路径不存在';
+      if (e.status === 403) return '无权访问该目录';
+      if (detail) return detail;
+    }
+    return '加载失败';
   }
 
   // ---- Toggle expand/collapse ----
@@ -434,11 +456,14 @@
       const rel = node.node.rel_path;
       const lastSep = Math.max(rel.lastIndexOf('/'), rel.lastIndexOf('\\'));
       const parentDir = lastSep >= 0 ? rel.slice(0, lastSep) : '';
-      const section = currentManageSection === 'files' ? 'files' : 'assets';
-      const sel = node.node.media_id;
-      const params = new URLSearchParams({ section, lib: node.libId });
+      // 同样在当前参数上合并：不能因为点了文件就把右侧的筛选全清掉
+      const params = realSearchParams();
+      params.set('section', currentManageSection === 'files' ? 'files' : 'assets');
+      params.set('lib', node.libId);
       if (parentDir) params.set('dir', parentDir);
-      params.set('sel', String(sel));
+      else params.delete('dir');
+      params.set('sel', String(node.node.media_id));
+      params.delete('page');
       void goto(`/manage?${params.toString()}`);
     }
   }
@@ -479,6 +504,7 @@
     <button
       class="item"
       data-tip={lib.name}
+      aria-label={lib.name}
       onclick={() => gotoDirectory(lib.id)}
     >
       <svg class="item-icon" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -550,8 +576,20 @@
               <path d="M2 5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5z"></path>
             </svg>
             <span class="fs-label" title={item.node?.name}>{item.node?.name}</span>
-            {#if item.node?.child_count != null}
-              <span class="fs-count">{item.node.child_count}</span>
+            <!-- 目录级统计：媒体数（递归）+ 有缺失时给一个警示 -->
+            {#if item.node?.media_count != null}
+              <span
+                class="fs-count"
+                title={`该目录（含子目录）共 ${item.node.media_count} 条媒体`}
+              >{item.node.media_count}</span>
+            {:else if item.node?.child_count != null}
+              <span class="fs-count" title="本目录直接子项数">{item.node.child_count}</span>
+            {/if}
+            {#if (item.node?.missing_count ?? 0) > 0}
+              <span
+                class="fs-warn"
+                title={`其中 ${item.node?.missing_count} 条文件缺失`}
+              >{item.node?.missing_count}</span>
             {/if}
           </button>
         </div>
@@ -564,6 +602,12 @@
           style={`padding-left: ${8 + item.depth * 14}px`}
           oncontextmenu={(e) => item.node && onContextMenu(e, item.node, item.libId)}
           onclick={() => selectNode(item)}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              selectNode(item);
+            }
+          }}
           role="button"
           tabindex="0"
           title={item.node?.name}
@@ -592,6 +636,16 @@
             <span class="fs-badge" title="未刮削">!</span>
           {/if}
         </div>
+      {/if}
+
+      <!-- 展开失败时给出可操作的原因（此前 loadErrors 只收集不渲染） -->
+      {#if item.kind !== 'file' && item.expanded}
+        {@const treeError = loadErrors.get(pathKey(item.libId, item.node?.rel_path ?? ''))}
+        {#if treeError}
+          <div class="fs-err" style={`padding-left: ${22 + item.depth * 14}px`}>
+            {treeError}
+          </div>
+        {/if}
       {/if}
     {/each}
 
@@ -668,10 +722,16 @@
     class="fs-rename-overlay"
     role="dialog"
     aria-modal="true"
-    onclick={cancelRename}
-    onkeydown={(e) => e.key === 'Escape' && cancelRename()}
+    tabindex="-1"
+    aria-label="重命名文件"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) cancelRename();
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') cancelRename();
+    }}
   >
-    <div class="fs-rename-dialog" onclick={(e) => e.stopPropagation()}>
+    <div class="fs-rename-dialog">
       <h3 class="fs-rename-title">重命名文件</h3>
       <p class="fs-rename-hint">修改文件名后可重新刮削以获取正确的元数据</p>
       <input
@@ -704,10 +764,16 @@
     class="fs-rename-overlay"
     role="dialog"
     aria-modal="true"
-    onclick={cancelDirAction}
-    onkeydown={(e) => e.key === 'Escape' && cancelDirAction()}
+    tabindex="-1"
+    aria-label={dirAction.type === 'create' ? '新建文件夹' : '目录操作'}
+    onclick={(e) => {
+      if (e.target === e.currentTarget) cancelDirAction();
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') cancelDirAction();
+    }}
   >
-    <div class="fs-rename-dialog" onclick={(e) => e.stopPropagation()}>
+    <div class="fs-rename-dialog">
       {#if dirAction.type === 'create'}
         <h3 class="fs-rename-title">新建文件夹</h3>
         <p class="fs-rename-hint">在「{dirAction.parentName}」下创建新文件夹</p>
@@ -943,6 +1009,26 @@
     color: var(--ink-faint);
     font-size: 12px;
     text-align: center;
+  }
+
+  /* 目录加载失败提示：红字小行，可长期停留（不是 transient 报错） */
+  .fs-err {
+    padding: 4px 8px 6px;
+    color: var(--danger);
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+
+  /* 目录内缺失文件的警示徽标（只在 >0 时出现） */
+  .fs-warn {
+    flex: none;
+    margin-left: 2px;
+    padding: 0 4px;
+    border-radius: var(--radius-full);
+    font-size: 10px;
+    line-height: 14px;
+    color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
   }
 
   /* ---- Context menu ---- */

@@ -255,6 +255,27 @@ body {
   transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
 
+/* ---- 原生播放内核模式（桌面端 mpv）----
+   mpv 以 wid 子窗口铺满整个客户区，WebView 必须整体透明才能透出画面；
+   html/body 与 AppShell 任何不透明底色都会把 mpv 盖住。播放页挂上
+   html.vitoice-player-native 后，从根到播放器容器一律透明，只留控制层。 */
+html.vitoice-player-native,
+html.vitoice-player-native body,
+html.vitoice-player-native .app-shell,
+html.vitoice-player-native .app-body,
+html.vitoice-player-native .app-main,
+html.vitoice-player-native .player-root,
+html.vitoice-player-native .mini-root {
+  background: transparent !important;
+}
+
+/* 播放器页本身是 z-index:50 的全屏覆盖层（自带顶栏与窗口按钮），浏览器回退时
+   侧栏/顶栏被它盖住；native 模式下覆盖层透明，必须显式隐藏，否则会叠在画面上。 */
+html.vitoice-player-native .sidebar,
+html.vitoice-player-native .topnav {
+  display: none !important;
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   font-weight: 700;

@@ -108,7 +108,6 @@
       aria-modal="true"
       aria-labelledby="tag-selector-title"
       tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
     >
       <div class="dialog-head">
         <h2 id="tag-selector-title">{title}</h2>

@@ -614,9 +614,6 @@ async def _sync_tags_for_media(
         )
 
     # Batch-load existing tags by name within their respective types
-    # Build (name, tag_type_id) pairs for lookup
-    name_type_pairs = [(name, type_map[tn].id) for name, tn in tag_specs]
-
     # Load all candidate tags in one query per type
     existing_tags: dict[tuple[str, int], Tag] = {}
     for tn, tt in type_map.items():
@@ -787,7 +784,7 @@ async def scrape_media(
 
     async with httpx.AsyncClient(timeout=30, proxy=await get_proxy_url()) as client:
         hit = None
-        for cfg_i, src_label in chain:
+        for cfg_i, _ in chain:
             try:
                 hit = await _tmdb_search(client, cfg_i, kind, query, year)
                 # Retry without the year constraint if nothing matched

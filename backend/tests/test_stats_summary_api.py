@@ -111,8 +111,14 @@ async def test_stats_summary_issue_counts(api_client: AsyncClient, db_session: A
     assert summary["missing_count"] == 1
     # no poster: missing + no_poster + episode all lack poster, but episodes are excluded
     assert summary["no_poster_count"] == 2
-    # no metadata: only `missing` lacks scrape_data (no_poster has it); episodes excluded
-    assert summary["no_metadata_count"] == 1
+    # no metadata: 口径是「缺封面 **或** 缺刮削数据均计入，且不排除网络媒体」
+    # （见 stats.py 的注释）。因此命中 3 条：
+    #   missing   — 无海报、无 scrape_data
+    #   no_poster — 无海报（虽有 scrape_data，仍算「缺」）
+    #   net       — 网络媒体，无海报、无 scrape_data（网络媒体不排除）
+    # episode 因挂在系列下被排除，hidden 因受限库被排除。
+    # 旧期望值 1 与上述口径矛盾，属陈旧断言（2026-10-22 修正）。
+    assert summary["no_metadata_count"] == 3
     # 来源统计：healthy + no_poster + episode 为可用本地文件（missing 因 file_missing 排除）；
     # net 为网络媒体
     assert summary["local_count"] == 3  # healthy + no_poster + episode

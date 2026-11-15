@@ -48,9 +48,3 @@ export function errorStatus(e: unknown): number | null {
   if (record && typeof record.status === 'number') return record.status;
   return null;
 }
-
-/** True when the request was aborted by an `AbortController` signal. */
-export function isAbortError(e: unknown): boolean {
-  const record = asRecord(e);
-  return !!record && record.name === 'AbortError';
-}

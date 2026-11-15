@@ -2,6 +2,9 @@
   /** 重复文件检测向导：查重 → 组内勾选保留 → 其余批量移入回收站 */
   import { client } from '$lib/api/client';
   import { librariesStore } from '$lib/stores/libraries.svelte';
+  import { toasts } from '$lib/stores/toast.svelte';
+  import { errorMessage } from '$lib/utils/errors';
+  import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 
   interface DupItem {
     id: number;
@@ -28,6 +31,8 @@
   /** 每组保留的媒体 id（key=组 key） */
   let keepMap = $state<Map<string, number>>(new Map());
   let cleaning = $state(false);
+  /** 清理前的二次确认：一次可能删上百条，不能点一下就执行 */
+  let confirmOpen = $state(false);
   let toast = $state<{ msg: string; type: 'ok' | 'err' } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -94,14 +99,43 @@
         { action: 'delete', media_ids: ids, params: { permanent: false } }
       );
       const fail = resp.failed.length;
-      showToast(`已移入回收站 ${resp.success_count} 项${fail ? `，${fail} 项失败` : ''}`, fail ? 'err' : 'ok');
+      // 用共享 toast 而不是组件内提示：只有那里能挂"撤销"动作
+      if (resp.success_count > 0) {
+        toasts.push(
+          `已合并：保留 ${keepMap.size} 份，${resp.success_count} 个重复项移入回收站${fail ? `，${fail} 项失败` : ''}`,
+          fail ? 'err' : 'ok',
+          {
+            action: {
+              label: '撤销',
+              run: () => restoreDeleted(ids.slice(0, resp.success_count))
+            }
+          }
+        );
+      } else {
+        showToast(`没有可清理的项${fail ? `（${fail} 项失败）` : ''}`, 'err');
+      }
       librariesStore.notifyChanged();
       await load();
     } catch (e) {
-      showToast(e instanceof Error ? e.message : '清理失败', 'err');
+      showToast(errorMessage(e, '清理失败'), 'err');
     } finally {
       cleaning = false;
     }
+  }
+
+  /** 撤销合并：逐条从回收站恢复，失败不阻断其它项。 */
+  async function restoreDeleted(ids: number[]): Promise<void> {
+    const results = await Promise.allSettled(
+      ids.map((id) => client.post(`/recycle-bin/${id}/restore`, {}))
+    );
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const bad = results.length - ok;
+    toasts.push(
+      `已撤销合并：恢复 ${ok} 项${bad ? `，${bad} 项失败（可到回收站手动恢复）` : ''}`,
+      bad ? 'err' : 'ok'
+    );
+    librariesStore.notifyChanged();
+    await load();
   }
 
   function close(): void {
@@ -183,10 +217,23 @@
         {/if}
         <span class="spacer"></span>
         <button class="btn" onclick={close}>关闭</button>
-        <button class="btn primary" disabled={toRemoveIds.length === 0 || cleaning || loading} onclick={cleanUp}>
+        <button
+          class="btn primary"
+          disabled={toRemoveIds.length === 0 || cleaning || loading}
+          onclick={() => (confirmOpen = true)}
+        >
           {cleaning ? '清理中…' : `移入回收站（${toRemoveIds.length}）`}
         </button>
       </footer>
+
+      <ConfirmDialog
+        bind:open={confirmOpen}
+        title="合并重复文件"
+        description={`将 ${toRemoveIds.length} 个重复项移入回收站，每组保留你选中的那一份。\n\n记录与文件都可从回收站恢复，10 秒内也可点提示条上的「撤销」。`}
+        confirmText="合并"
+        danger
+        onconfirm={() => void cleanUp()}
+      />
     </div>
   </div>
 {/if}

@@ -183,6 +183,10 @@ class MediaResponse(ORMBaseModel):
     # 缩略图集（4×4 contact sheet）是否已生成 — 列表接口按文件存在性填充
     has_contact_sheet: bool = False
 
+    # 未脱敏的本地绝对路径，仅供播放内核直接读取文件（mpv 的 loadfile 需要真实路径，
+    # 脱敏后的 file_path 无法打开）。只由详情接口按需填充，列表/其他接口一律为 None。
+    local_path: str | None = None
+
     # Nested relations (populated when eagerly loaded; default to empty)
     urls: list[MediaUrlResponse] = []
     segments: list[SegmentResponse] = []
@@ -218,6 +222,9 @@ class MediaListResponse(BaseModel):
     page: int = 1
     page_size: int = 20
     total_pages: int = 0
+    #: 仅 `ids_only=true` 时返回：与筛选条件匹配的全部 id（跨页全选用）。
+    #: 此时 `items` 为空，分页字段保留以便调用方沿用同一套类型。
+    ids: list[int] | None = None
 
 
 class MediaFacetItem(BaseModel):

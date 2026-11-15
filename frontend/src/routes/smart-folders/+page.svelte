@@ -575,7 +575,6 @@
   >
     <div
       class="modal dialog-modal"
-      onclick={(e) => e.stopPropagation()}
       role="dialog"
       aria-modal="true"
       tabindex="-1"
@@ -855,7 +854,7 @@
     onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); if (!deleting) { deleteOpen = false; deleteTarget = null; } } }}
     role="presentation"
   >
-    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" tabindex="-1">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="删除智能文件夹" tabindex="-1">
       <h3>删除智能文件夹</h3>
       <p>确定删除「{deleteTarget?.name}」？该操作仅删除文件夹定义，不会删除任何媒体文件。</p>
       <div class="modal-actions">
@@ -876,7 +875,7 @@
     onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); previewOpen = false; } }}
     role="presentation"
   >
-    <div class="modal preview-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" tabindex="-1">
+    <div class="modal preview-modal" role="dialog" aria-modal="true" aria-label="智能文件夹预览" tabindex="-1">
       <div class="preview-head">
         <div class="preview-title-area">
           <div class="preview-title-row">

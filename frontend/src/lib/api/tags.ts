@@ -1,4 +1,4 @@
-import { client, ApiError } from './client';
+import { client } from './client';
 
 export interface Tag {
   id: string;
@@ -75,6 +75,29 @@ export function flattenTags(tree: Tag[]): Tag[] {
   return out;
 }
 
+/**
+ * Keep only the sub-trees matching `typeId`.
+ *
+ * A node that matches keeps its whole sub-tree; a node that does not match is
+ * dropped and any matching descendants are promoted to its place. Needed
+ * because the tag list is a hierarchy — a flat `filter()` on the first level
+ * would hide tags that sit under a differently-typed parent.
+ *
+ * (Moved here from the deleted `lib/manage/filters.ts` in PR6.)
+ */
+export function filterTreeByType(nodes: Tag[], typeId: number): Tag[] {
+  const out: Tag[] = [];
+  for (const n of nodes) {
+    if (n.tag_type_id === typeId) {
+      out.push(n);
+    } else if (n.children?.length) {
+      const kids = filterTreeByType(n.children, typeId);
+      if (kids.length) out.push(...kids);
+    }
+  }
+  return out;
+}
+
 export interface TagListParams {
   tag_type_id?: number;
   library_id?: string;
@@ -109,17 +132,5 @@ export const tagsApi = {
   update: async (id: string, input: UpdateTagInput): Promise<Tag> =>
     normalizeTag(await client.put<Partial<TagPayload>>(`/tags/${id}`, input)),
 
-  delete: (id: string) => client.delete<void>(`/tags/${id}`),
-
-  suggest: async (mediaId: string): Promise<string[]> => {
-    try {
-      const res = await client.get<string[]>(`/tags/suggest`, { media_id: mediaId });
-      return Array.isArray(res) ? res : [];
-    } catch (e) {
-      // Endpoint may not exist (404) — degrade gracefully to an empty list.
-      if (e instanceof ApiError && e.status === 404) return [];
-      console.error('Tag suggest failed', e);
-      return [];
-    }
-  }
+  delete: (id: string) => client.delete<void>(`/tags/${id}`)
 };

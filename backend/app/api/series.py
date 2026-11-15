@@ -26,10 +26,10 @@ from app.services.series_view import (
     enrich_library_series_response,
     group_equivalent_series,
 )
+from app.schemas.common import PaginatedResponse
 from app.schemas.series import (
     EpisodeNavigation,
     EpisodeResponse,
-    PaginatedResponse,
     SeasonGroup,
     SeriesDetailResponse,
     SeriesResponse,
@@ -142,6 +142,7 @@ async def list_series(
         total=total,
         page=page,
         page_size=page_size,
+        total_pages=(total + page_size - 1) // page_size,
     )
 
 

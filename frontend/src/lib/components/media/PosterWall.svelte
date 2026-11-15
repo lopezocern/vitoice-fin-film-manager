@@ -7,6 +7,7 @@
   import { getProgress } from './types';
   import { settingsStore } from '$lib/stores/settings.svelte';
   import { librariesStore } from '$lib/stores/libraries.svelte';
+  import { cardRatios } from '$lib/stores/cardRatios.svelte';
   import ContactSheetLightbox from './ContactSheetLightbox.svelte';
 
   let {
@@ -46,12 +47,24 @@
     return settingsStore.maskRestricted && restrictedLibIds.has(String(media.library_id));
   }
 
+  /** 封面是否走播放：有 onplay 且非图片（与观看中心/UnifiedWall 同一契约）。 */
+  function canPlay(media: Media): boolean {
+    return !!onplay && media.type !== 'image';
+  }
+
+  /** 封面点击：能播则播，否则进详情（图片等不可播媒体回落详情页）。 */
+  function playMedia(media: Media): void {
+    if (canPlay(media)) onplay?.(media);
+    else onSelect?.(media);
+  }
+
   // ---- 图片比例分类（按实际宽高比统一展示，避免高低不齐） ----
   // 宽图 → 3/2 横卡、竖图 → 2/3 竖卡、方图 → 1/1 方卡。
   // 有海报按海报比例；无海报只有截图时也按截图自然比例归类——
   // 视频截图多为 16:9 横屏,加载前默认 3/2 横卡,加载后按实际比例修正
   // (竖屏截图会自动变为 2/3 竖卡)。
-  const posterRatio = $state<Record<string, string>>({});
+  // 比例表跨导航持久化（见 cardRatios.svelte.ts）：返回媒体库时布局与离开时
+  // 一致，锚点滚动恢复才能精确落点。
   function onImageLoad(e: Event, media: Media): void {
     const img = e.currentTarget as HTMLImageElement;
     const r = img.naturalWidth / img.naturalHeight;
@@ -59,7 +72,7 @@
     let ar = '2 / 3';
     if (r > 1.05) ar = '4 / 3';
     else if (r >= 0.95) ar = '1 / 1';
-    posterRatio[String(media.id)] = ar;
+    cardRatios[String(media.id)] = ar;
   }
 
   // 桌面应用（Windows/macOS）：一次性渲染全部 items。
@@ -75,7 +88,7 @@
   {@const av = isAvMedia(media)}
   {@const usesSeriesCover = media.series_id != null}
   {@const hasImage = usesSeriesCover || !!media.poster || !!media.thumbnail}
-  {@const ratioCls = hasImage ? posterRatio[String(media.id)] : undefined}
+  {@const ratioCls = hasImage ? cardRatios[String(media.id)] : undefined}
   {@const defaultRatio = usesSeriesCover || media.poster ? (av && !usesSeriesCover ? '4 / 3' : '2 / 3') : '4 / 3'}
   {@const ratioStr = mode === 'poster' ? '2 / 3' : (ratioCls ?? defaultRatio)}
   {@const isWide = !usesSeriesCover && mode === 'mixed' && (ratioCls === '4 / 3' || (!ratioCls && !media.poster && !!media.thumbnail))}
@@ -90,12 +103,21 @@
       class:av-poster={av}
       class:has-poster={!!media.poster}
       style:aspect-ratio={hasImage ? ratioStr : undefined}
-      class:playable={onplay && media.type !== 'image'}
+      class:playable={canPlay(media)}
       onclick={(e) => {
         e.stopPropagation();
-        if (media.type !== 'image') onplay?.(media);
+        playMedia(media);
       }}
-      title={media.type !== 'image' ? '点击封面播放' : '查看详情'}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          playMedia(media);
+        }
+      }}
+      role="button"
+      tabindex="-1"
+      title={canPlay(media) ? '点击封面播放' : '查看详情'}
     >
       {#if usesSeriesCover}
         <img src={seriesApi.posterUrl(media.series_id!)} alt={media.series_title ?? media.title ?? media.filename} loading="lazy" onerror={(e) => seriesCoverFallback(e, media)} onload={(e) => onImageLoad(e, media)} />
@@ -118,6 +140,13 @@
         role="button"
         tabindex="-1"
         onclick={(e) => { e.stopPropagation(); openContactSheet(media); }}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            openContactSheet(media);
+          }
+        }}
       >
         <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
           <rect x="3" y="3" width="8" height="8" rx="1" />
@@ -147,13 +176,25 @@
           <span class="mask-icon">🔞</span>
         </div>
       {/if}
-      {#if onplay && media.type !== 'image'}
+      {#if canPlay(media)}
         <span class="play-hint" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
         </span>
       {/if}
     </div>
-    <div class="poster-info" onclick={() => onSelect?.(media)} title="查看详情">
+    <div
+      class="poster-info"
+      onclick={() => onSelect?.(media)}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect?.(media);
+        }
+      }}
+      role="button"
+      tabindex="-1"
+      title="查看详情"
+    >
       <div class="poster-title" title={media.title ?? media.filename}>{media.title ?? media.filename}</div>
       <div class="poster-meta">
         {#if media.year}<span class="muted">{media.year}</span>{/if}
@@ -162,6 +203,10 @@
         {/if}
         {#if media.type}<span class="muted">{media.type}</span>{/if}
       </div>
+      <span class="detail-hint" aria-hidden="true">
+        查看详情
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+      </span>
     </div>
   </button>
   {/each}
@@ -386,8 +431,14 @@
   }
 
   .poster-info {
+    position: relative;
     padding: 8px 10px 10px;
     cursor: pointer;
+    transition: background 160ms ease;
+  }
+
+  .poster-info:hover {
+    background: var(--bg-soft);
   }
 
   .poster-title {
@@ -401,6 +452,11 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     min-height: 2.7em;
+    transition: color 160ms ease;
+  }
+
+  .poster-info:hover .poster-title {
+    color: var(--accent);
   }
 
   .poster-meta {
@@ -409,6 +465,43 @@
     gap: 8px;
     margin-top: 5px;
     font-size: 11.5px;
+    transition: opacity 140ms ease;
+  }
+
+  .poster-info:hover .poster-meta {
+    opacity: 0;
+  }
+
+  /* 信息区 hover 提示：meta 淡出，'查看详情 ›' 滑入 + 箭头持续微动
+     （与观看中心卡片一致） */
+  .detail-hint {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 650;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity 160ms ease, transform 160ms ease;
+    pointer-events: none;
+  }
+
+  .poster-info:hover .detail-hint {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .detail-hint svg {
+    animation: hint-nudge 1.1s ease-in-out infinite;
+  }
+
+  @keyframes hint-nudge {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(3px); }
   }
 
   .rating {

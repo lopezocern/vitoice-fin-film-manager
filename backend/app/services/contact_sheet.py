@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import subprocess
+import time
 import uuid
 from pathlib import Path
 
@@ -28,6 +29,36 @@ JPEG_QUALITY = 85
 
 def contact_sheet_path(media_id: int) -> Path:
     return settings.thumbnail_dir / "contact_sheets" / f"{media_id}.jpg"
+
+
+# A normal run removes its own frames in `finally`; only a crash / forced kill
+# leaves them behind. Age guard: never touch fresh frames, so a sheet that is
+# being generated while the app restarts is not corrupted.
+ORPHAN_FRAME_MAX_AGE_S = 3600
+
+
+def cleanup_orphan_frames(max_age_s: float = ORPHAN_FRAME_MAX_AGE_S) -> int:
+    """Delete ``.cs_*`` frame leftovers from interrupted runs.
+
+    Called once at startup. Returns the number of removed files.
+    """
+    sheet_dir = settings.thumbnail_dir / "contact_sheets"
+    if not sheet_dir.is_dir():
+        return 0
+
+    cutoff = time.time() - max_age_s
+    removed = 0
+    for frame in sheet_dir.glob(".cs_*"):
+        try:
+            if frame.is_file() and frame.stat().st_mtime < cutoff:
+                frame.unlink()
+                removed += 1
+        except OSError:
+            continue  # in use / already gone — leave it for the next startup
+
+    if removed:
+        logger.info("Cleaned up %d orphaned contact-sheet frames", removed)
+    return removed
 
 
 def _extract_and_compose_sync(

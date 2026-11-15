@@ -10,7 +10,13 @@ export interface Library {
   description?: string;
   scrape_mode?: ScrapeMode;
   is_restricted?: boolean;
+  /** 目录监控开关（后端 LibraryResponse.watch_enabled）。 */
+  watch_enabled?: boolean;
   media_count?: number;
+  /** 该库中 file_missing=true 的条目数（PR1 新增聚合）。 */
+  missing_count?: number;
+  /** 该库媒体占用字节数（PR1 新增聚合）。 */
+  total_size?: number;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +31,12 @@ export interface UpdateLibraryInput {
   name?: string;
   path?: string;
   description?: string;
+  /** 侧边栏/列表排序权重，越小越靠前。 */
+  sort_order?: number;
+  /** 目录监控开关（watchdog 是否跟踪该库）。 */
+  watch_enabled?: boolean;
+  /** 受限内容标记（配合「显示限制内容」开关做门控）。 */
+  is_restricted?: boolean;
 }
 
 /** 删除资源库时被清理的空标签 */
@@ -56,7 +68,10 @@ export interface LibraryPayload {
   description?: string | null;
   scrape_mode?: ScrapeMode | null;
   is_restricted?: boolean | null;
+  watch_enabled?: boolean | null;
   media_count?: number | null;
+  missing_count?: number | null;
+  total_size?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -71,7 +86,10 @@ function normalizeLibrary(raw: Partial<LibraryPayload> | null | undefined): Libr
     description: raw?.description ?? undefined,
     scrape_mode: raw?.scrape_mode ?? undefined,
     is_restricted: raw?.is_restricted ?? false,
+    watch_enabled: raw?.watch_enabled ?? true,
     media_count: raw?.media_count ?? 0,
+    missing_count: raw?.missing_count ?? 0,
+    total_size: raw?.total_size ?? 0,
     created_at: raw?.created_at ?? '',
     updated_at: raw?.updated_at ?? ''
   };
@@ -92,6 +110,9 @@ function normalizeTreeNode(raw: Partial<TreeNodePayload> | null | undefined): Tr
     is_scraped: !!raw?.is_scraped,
     has_poster: !!raw?.has_poster,
     child_count: raw?.child_count ?? undefined,
+    media_count: raw?.media_count ?? undefined,
+    missing_count: raw?.missing_count ?? undefined,
+    no_poster_count: raw?.no_poster_count ?? undefined,
   };
 }
 
@@ -127,6 +148,9 @@ export const librariesApi = {
     if (input.name !== undefined) payload.name = input.name;
     if (input.path !== undefined) payload.root_path = input.path;
     if (input.description !== undefined) payload.description = input.description;
+    if (input.sort_order !== undefined) payload.sort_order = input.sort_order;
+    if (input.watch_enabled !== undefined) payload.watch_enabled = input.watch_enabled;
+    if (input.is_restricted !== undefined) payload.is_restricted = input.is_restricted;
     return normalizeLibrary(
       await client.put<Partial<LibraryPayload>>(`/libraries/${id}`, payload)
     );
@@ -138,7 +162,6 @@ export const librariesApi = {
       cleanEmptyTags ? { clean_empty_tags: true } : undefined
     ),
   scan: (id: string) => client.post<{ task_id: string }>(`/libraries/${id}/scan`),
-  rescan: (id: string) => client.post<{ task_id: string }>(`/libraries/${id}/rescan`),
 
   /** Import external files into a library directory (server-side copy/move + scan). */
   importFiles: async (id: string, targetDir: string, sourcePaths: string[], action: 'copy' | 'move' = 'copy') => {
@@ -210,6 +233,10 @@ export interface TreeNodePayload {
   is_scraped?: boolean | null;
   has_poster?: boolean | null;
   child_count?: number | null;
+  /** 目录级统计（递归含子目录） */
+  media_count?: number | null;
+  missing_count?: number | null;
+  no_poster_count?: number | null;
 }
 
 export interface TreeNode {
@@ -222,6 +249,10 @@ export interface TreeNode {
   is_scraped: boolean;
   has_poster: boolean;
   child_count?: number;
+  /** 该目录（含子目录）的媒体数；undefined = 后端未统计 */
+  media_count?: number;
+  missing_count?: number;
+  no_poster_count?: number;
 }
 
 /** GET /api/libraries/{id}/tree — see `TreeResponse` in the API. */

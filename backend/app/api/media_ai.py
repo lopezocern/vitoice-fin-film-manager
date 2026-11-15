@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.enums import ScrapeMode
 from app.models.library import MediaLibrary
-from app.models.media import Media
 from app.schemas.media import AIRescrapeResponse, AITagSuggestion
 # Single source of truth for the S7 single-resource gate — reuse the one in
 # media.py instead of keeping a drifting copy.

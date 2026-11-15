@@ -1,47 +1,10 @@
 """Schemas for Series — TV show aggregation entity."""
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.schemas.common import ORMBaseModel
-
-T = TypeVar("T")
-
-
-class PaginatedResponse(BaseModel, Generic[T]):
-    """Generic paginated response wrapper."""
-    items: list[T]
-    total: int
-    page: int
-    page_size: int
-
-
-class SeriesCreate(BaseModel):
-    """Schema for creating a series."""
-    library_id: int
-    title: str = Field(..., max_length=500)
-    tmdb_id: int | None = None
-    year: int | None = None
-    overview: str | None = None
-    poster_path: str | None = None
-    scrape_data: dict[str, Any] | None = None
-    total_seasons: int | None = None
-    total_episodes: int | None = None
-
-
-class SeriesUpdate(BaseModel):
-    """Schema for updating a series — all fields optional."""
-    title: str | None = Field(None, max_length=500)
-    tmdb_id: int | None = None
-    year: int | None = None
-    overview: str | None = None
-    poster_path: str | None = None
-    scrape_data: dict[str, Any] | None = None
-    total_seasons: int | None = None
-    total_episodes: int | None = None
-    episode_count: int | None = None
-    sort_order: int | None = None
 
 
 class SeriesResponse(ORMBaseModel):

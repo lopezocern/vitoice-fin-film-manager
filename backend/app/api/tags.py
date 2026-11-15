@@ -247,31 +247,6 @@ async def create_tag(payload: TagCreate, db: AsyncSession = Depends(get_db)):
     return tag
 
 
-@router.get("/tags/suggest")
-async def suggest_tags(
-    media_id: int = Query(..., description="Media id to suggest tags for"),
-    db: AsyncSession = Depends(get_db),
-):
-    """Suggest tag names for a media item (AI, without persisting).
-
-    Returns a list of tag-name strings. Empty when no AI key is configured or
-    the provider returns nothing. Never raises on provider errors so the
-    frontend can degrade gracefully.
-    """
-    # Gate: AI suggestion must not run against restricted / soft-deleted media
-    # (it uploads the title/filename to an external provider).
-    await get_accessible_media(db, media_id)
-
-    from app.services.ai_tagger import suggest_tags_for_media
-
-    try:
-        names = await suggest_tags_for_media(media_id)
-    except Exception:  # noqa: BLE001
-        logger.warning("Tag suggestion failed for media %s", media_id, exc_info=True)
-        names = []
-    return names
-
-
 @router.put("/tags/{tag_id}", response_model=TagResponse)
 async def update_tag(
     tag_id: int, payload: TagUpdate, db: AsyncSession = Depends(get_db)

@@ -47,6 +47,9 @@
     testable?: boolean;
     pickable?: boolean;
     description?: string;
+    /** 本地类型设置：不写入后端 /settings，改经 Tauri invoke 持久化到应用配置目录
+     * （窗口创建前 Rust 侧即需读到的项，如硬件视频解码开关）。 */
+    local?: boolean;
   }
 
   interface SettingResponse {
@@ -340,6 +343,15 @@
       default: 'true',
       description: '播放结束后（或未连播时）展示同系列/同标签/同库的推荐网格'
     },
+    {
+      key: 'video_hw_decode',
+      category: 'player',
+      label: '硬件视频解码',
+      type: 'toggle',
+      default: 'true',
+      local: true,
+      description: '开启时视频由 GPU 硬件解码（省电省 CPU，但 seek 偶有短暂停顿）；关闭时改用软件解码（seek 更顺滑，但更耗 CPU，部分 HEVC 可能无法硬解）。修改后重启应用生效。'
+    },
     // 字幕
     {
       key: 'subtitle_font_size',
@@ -481,10 +493,13 @@
     loading = true;
     error = null;
     try {
+      // 本地类型设置（Rust 侧持有）不从后端读，先注入默认值再覆盖
+      const map = initDefaults();
+      for (const l of schema.filter((s) => s.local)) map[l.key] = l.default;
+      await hydrateLocalSettings(map);
       // noCache=true：绕过 client 层 30s GET 缓存——否则刚保存的开关（如"显示限制内容"）
       // 在 30 秒内返回设置页会读到旧缓存值，表现为"开关又自己弹回去了"。
       const list = await client.get<SettingResponse[]>('/settings', undefined, undefined, true);
-      const map = initDefaults();
       for (const s of list ?? []) {
         if (s.value !== null && s.value !== undefined) {
           map[s.key] = s.value;
@@ -531,13 +546,19 @@
     }
     const keys = Array.from(pendingKeys);
     pendingKeys = new Set();
+    const localKeys = new Set(schema.filter((s) => s.local).map((s) => s.key));
+    const backendKeys = keys.filter((k) => !localKeys.has(k));
     try {
-      const settings = keys.map((k) => ({ key: k, value: values[k] ?? '' }));
-      await client.put('/settings', { settings });
+      if (backendKeys.length > 0) {
+        const settings = backendKeys.map((k) => ({ key: k, value: values[k] ?? '' }));
+        await client.put('/settings', { settings });
+        saveState = 'saved';
+        // 直接同步全局 store 内存（不二次 PUT）：媒体页/侧边栏立即响应开关变化，
+        // 避免 bulkUpdate 的第二次 PUT + 全量 load 造成的"保存后刷新慢"。
+        settings.forEach((s) => settingsStore.setLocal(s.key, s.value));
+      }
+      await persistLocalKeys(keys.filter((k) => localKeys.has(k)));
       saveState = 'saved';
-      // 直接同步全局 store 内存（不二次 PUT）：媒体页/侧边栏立即响应开关变化，
-      // 避免 bulkUpdate 的第二次 PUT + 全量 load 造成的"保存后刷新慢"。
-      settings.forEach((s) => settingsStore.setLocal(s.key, s.value));
       setTimeout(() => {
         if (saveState === 'saved') saveState = 'idle';
       }, 1500);
@@ -545,6 +566,36 @@
       saveState = 'error';
       // 重新加入待保存
       pendingKeys = new Set([...pendingKeys, ...keys]);
+    }
+  }
+
+  /** 读取本地（Rust 侧）设置到 values，非 Tauri 环境时保持默认。 */
+  async function hydrateLocalSettings(map: Record<string, string>): Promise<void> {
+    if (!isTauriEnv()) return;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      for (const l of schema.filter((s) => s.local)) {
+        if (l.key === 'video_hw_decode') {
+          const on = await invoke('get_video_hw_decode');
+          map[l.key] = on !== false ? 'true' : 'false';
+        }
+      }
+    } catch {
+      // 非 Tauri 或命令不可用：保留默认
+    }
+  }
+
+  async function persistLocalKeys(keys: string[]): Promise<void> {
+    if (keys.length === 0 || !isTauriEnv()) return;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      for (const k of keys) {
+        if (k === 'video_hw_decode') {
+          await invoke('set_video_hw_decode', { enabled: (values[k] ?? 'true') === 'true' });
+        }
+      }
+    } catch {
+      // 写应用配置目录失败时静默，下次启动仍按旧值——不阻断其余设置保存
     }
   }
 

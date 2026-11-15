@@ -252,6 +252,38 @@ async def generate_thumbnail(
     )
 
 
+async def generate_preview_frame(
+    file_path: str,
+    output_path: str,
+    timestamp: float,
+    size: int = 320,
+    quality: int = 70,
+) -> bool:
+    """Extract a single frame for hover/scrub previews (fast path).
+
+    Deliberately skips the two costs that only make sense for poster
+    thumbnails:
+      - the settings-table lookup (preview size/quality are fixed by the
+        caller anyway), and
+      - smart-frame probing (multiple candidate timestamps + blank-frame
+        detection), which would both slow the request down and return a
+        frame from the wrong timestamp.
+
+    Preview frames are requested once per second while scrubbing, so latency
+    dominates; the caller passes the exact timestamp it wants.
+    """
+    return await asyncio.to_thread(
+        _generate_thumbnail_sync,
+        file_path,
+        output_path,
+        timestamp,
+        size,
+        quality,
+        False,
+        None,
+    )
+
+
 async def generate_thumbnail_batch(
     library_id: int,
     task_id: int | None = None,

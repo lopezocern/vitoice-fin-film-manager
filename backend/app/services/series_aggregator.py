@@ -51,8 +51,6 @@ async def cleanup_orphaned_series(library_id: int) -> int:
 
     Returns the number of Series deleted.
     """
-    from sqlalchemy import delete
-
     async with async_session() as session:
         # Load all Series for this library
         result = await session.execute(

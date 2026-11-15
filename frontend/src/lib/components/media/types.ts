@@ -1,7 +1,11 @@
 // 媒体页共享类型定义
+//
+// 这三个联合类型现在只有一个来源：`lib/media/query.ts`（唯一的查询契约）。
+// 此前它们在这里和管理页的类型里各存了一份，靠"结构兼容"才没炸；PR6 后统一
+// 从这里 re-export，改一处即可。
+export type { ResolutionFilter, DurationFilter, ContentSection } from '$lib/media/query';
 
-export type ResolutionFilter = '4k' | '1080p' | '720p' | '480p' | 'other' | '';
-export type DurationFilter = 'short' | 'medium' | 'long' | '';
+import type { ResolutionFilter, DurationFilter } from '$lib/media/query';
 
 export interface FilterState {
   type?: string;
@@ -21,7 +25,6 @@ export interface SortState {
   order: 'asc' | 'desc';
 }
 
-export type ContentSection = 'all' | 'movie' | 'tv' | 'image' | 'audio';
 export type ViewMode = 'mixed' | 'poster' | 'list' | 'timeline';
 
 // 从媒体 metadata 中读取播放进度（0-100）

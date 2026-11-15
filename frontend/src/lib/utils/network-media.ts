@@ -10,6 +10,10 @@ export function classifyNetworkUrl(url: string): NetworkUrlType {
 
   if (lower.includes('.m3u8')) return 'hls';
 
+  // DoodStream-family embed pages carry no m3u8: the backend mints an mp4 and
+  // streams it through the proxy, so treat them as direct video.
+  if (/(playmogo|dood|dsvplay|dooodster|d000d)\./.test(lower)) return 'direct';
+
   const platformPatterns = [
     /youtube\.com\/watch/, /youtu\.be\//, /bilibili\.com\/video/,
     /b23\.tv\//, /vimeo\.com\//, /twitch\.tv\//, /nicovideo\.jp\/watch/,
@@ -68,7 +72,7 @@ export async function openExternalUrl(url: string): Promise<void> {
 // ---- Adult aggregator (javgg-style) media detection --------------------------
 
 /** Platform names produced by the adult aggregator resolver. */
-export const ADULT_SERVERS = ['vidhide', 'turboplay', 'streamwish'] as const;
+export const ADULT_SERVERS = ['vidhide', 'turboplay', 'streamwish', 'dood'] as const;
 
 /** True when a URL points at an adult aggregator site (e.g. javgg article page). */
 export function isAdultAggregatorUrl(url: string): boolean {

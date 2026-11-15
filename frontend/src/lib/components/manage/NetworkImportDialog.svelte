@@ -122,8 +122,17 @@
 </script>
 
 {#if open}
-  <div class="modal-overlay" onclick={() => (open = false)}>
-    <div class="modal-card" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) open = false;
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') open = false;
+    }}
+  >
+    <div class="modal-card" role="dialog" aria-modal="true" aria-label="网络媒体导入" tabindex="-1">
       <div class="modal-header">
         <h2>网络媒体导入</h2>
         <button class="close-btn" onclick={() => (open = false)}>✕</button>

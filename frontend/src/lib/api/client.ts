@@ -132,7 +132,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 export const client = {
   get: <T>(path: string, params?: Params, signal?: AbortSignal, noCache?: boolean) =>
     request<T>(path, { method: 'GET', params, signal, noCache }),
-  post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
+  /**
+   * POST。第三个参数是可选 init：分片批量操作需要把 `signal` 传进去，
+   * 这样"取消"能立刻中断在途请求而不只是等下一片。
+   */
+  post: <T>(path: string, body?: unknown, init?: { signal?: AbortSignal; params?: Params }) =>
+    request<T>(path, { method: 'POST', body, signal: init?.signal, params: init?.params }),
   put: <T>(path: string, body?: unknown, params?: Params) => request<T>(path, { method: 'PUT', body, params }),
   delete: <T>(path: string, params?: Params) => request<T>(path, { method: 'DELETE', params })
 };

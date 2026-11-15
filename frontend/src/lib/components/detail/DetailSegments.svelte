@@ -6,11 +6,13 @@
   let {
     segments,
     mediaDuration,
-    onjump
+    onjump,
+    ondelete
   }: {
     segments: Segment[];
     mediaDuration?: number;
     onjump?: (seg: Segment) => void;
+    ondelete?: (seg: Segment) => void;
   } = $props();
 
   // 进度条锚点位置百分比
@@ -52,10 +54,17 @@
               {formatTime(seg.start)}{#if seg.end} – {formatTime(seg.end)}{/if}
             </span>
           </div>
-          <button class="seg-jump" onclick={() => onjump?.(seg)} title="跳转到此处">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
-            跳转
-          </button>
+          <div class="seg-actions">
+            <button class="seg-jump" onclick={() => onjump?.(seg)} title="跳转到此处">
+              <svg viewBox="0 0 24 24" width="14" height="14"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+              跳转
+            </button>
+            {#if ondelete}
+              <button class="seg-del" onclick={() => ondelete(seg)} title="删除片段" aria-label="删除片段">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/></svg>
+              </button>
+            {/if}
+          </div>
         </div>
       {/each}
     </div>
@@ -192,6 +201,13 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .seg-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
   .seg-jump {
     display: inline-flex;
     align-items: center;
@@ -209,5 +225,23 @@
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
+  }
+
+  .seg-del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 6px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--bg2);
+    color: var(--muted);
+    transition: all 200ms ease;
+  }
+
+  .seg-del:hover {
+    background: #ff3b30;
+    border-color: #ff3b30;
+    color: #fff;
   }
 </style>

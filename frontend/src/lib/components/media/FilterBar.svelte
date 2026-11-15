@@ -203,7 +203,7 @@
         <span>{typeLabel}</span><span class="caret">▾</span>
       </button>
       {#if openMenu === 'type'}
-        <div class="menu" onkeydown={onMenuKeydown} role="listbox" aria-label="媒体类型">
+        <div class="menu" onkeydown={onMenuKeydown} role="listbox" tabindex="-1" aria-label="媒体类型">
           {#each typeOptions as o}
             <button class="menu-item" role="option" aria-selected={o.value === (filter.type ?? '')} class:active={o.value === (filter.type ?? '')} onclick={() => pickType(o.value)}>{o.label}</button>
           {/each}
@@ -217,7 +217,7 @@
         <span>{genreLabel}</span><span class="caret">▾</span>
       </button>
       {#if openMenu === 'genre'}
-        <div class="menu menu-scroll" onkeydown={onMenuKeydown} role="listbox" aria-label="题材">
+        <div class="menu menu-scroll" onkeydown={onMenuKeydown} role="listbox" tabindex="-1" aria-label="题材">
           {#if genreOptions.length <= 1}
             <div class="menu-empty">暂无题材数据（需先刮削媒体）</div>
           {:else}
@@ -235,7 +235,7 @@
         <span>{countryLabel}</span><span class="caret">▾</span>
       </button>
       {#if openMenu === 'country'}
-        <div class="menu menu-scroll" onkeydown={onMenuKeydown} role="listbox" aria-label="地区">
+        <div class="menu menu-scroll" onkeydown={onMenuKeydown} role="listbox" tabindex="-1" aria-label="地区">
           {#if countryOptions.length <= 1}
             <div class="menu-empty">暂无地区数据（需先刮削媒体）</div>
           {:else}
@@ -253,7 +253,7 @@
         <span>{yearLabel}</span><span class="caret">▾</span>
       </button>
       {#if openMenu === 'year'}
-        <div class="menu menu-scroll" onkeydown={onMenuKeydown} role="listbox" aria-label="年份">
+        <div class="menu menu-scroll" onkeydown={onMenuKeydown} role="listbox" tabindex="-1" aria-label="年份">
           {#if yearOptions.length <= 1}
             <div class="menu-empty">暂无年份数据（需先刮削媒体）</div>
           {:else}
@@ -271,7 +271,7 @@
         <span>{resLabel}</span><span class="caret">▾</span>
       </button>
       {#if openMenu === 'resolution'}
-        <div class="menu" onkeydown={onMenuKeydown} role="listbox" aria-label="分辨率">
+        <div class="menu" onkeydown={onMenuKeydown} role="listbox" tabindex="-1" aria-label="分辨率">
           {#each resolutionOptions as o}
             <button class="menu-item" role="option" aria-selected={o.value === (filter.resolution ?? '')} class:active={o.value === (filter.resolution ?? '')} onclick={() => pickRes(o.value)}>{o.label}</button>
           {/each}
@@ -285,7 +285,7 @@
         <span>{ratingLabel}</span><span class="caret">▾</span>
       </button>
       {#if openMenu === 'rating'}
-        <div class="menu" onkeydown={onMenuKeydown} role="listbox" aria-label="评分">
+        <div class="menu" onkeydown={onMenuKeydown} role="listbox" tabindex="-1" aria-label="评分">
           {#each ratingOptions as o}
             <button class="menu-item" role="option" aria-selected={o.value === String(filter.ratingMin ?? '')} class:active={o.value === String(filter.ratingMin ?? '')} onclick={() => pickRating(o.value)}>{o.label}</button>
           {/each}
@@ -299,7 +299,7 @@
         <span>{durationLabel}</span><span class="caret">▾</span>
       </button>
       {#if openMenu === 'duration'}
-        <div class="menu" onkeydown={onMenuKeydown} role="listbox" aria-label="时长">
+        <div class="menu" onkeydown={onMenuKeydown} role="listbox" tabindex="-1" aria-label="时长">
           {#each durationOptions as o}
             <button class="menu-item" role="option" aria-selected={o.value === (filter.duration ?? '')} class:active={o.value === (filter.duration ?? '')} onclick={() => pickDuration(o.value)}>{o.label}</button>
           {/each}

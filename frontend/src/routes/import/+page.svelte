@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   // 导入向导：4 步流程引导首次用户创建库、扫描、生成缩略图、查看结果
   // 使用 client 直接与后端交互（库的完整字段含 scrape_mode / watch_enabled）
   import { onMount, onDestroy } from 'svelte';
@@ -422,6 +422,8 @@
               class="toggle"
               class:on={watchEnabled}
               onclick={() => (watchEnabled = !watchEnabled)}
+              aria-label="启用文件监控"
+              title="启用文件监控"
               role="switch"
               aria-checked={watchEnabled}
             >
@@ -439,6 +441,8 @@
               class="toggle"
               class:on={isRestricted}
               onclick={() => (isRestricted = !isRestricted)}
+              aria-label="限制内容"
+              title="限制内容"
               role="switch"
               aria-checked={isRestricted}
             >

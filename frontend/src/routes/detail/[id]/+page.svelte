@@ -9,6 +9,7 @@
   import { librariesApi, type Library } from '$lib/api/libraries';
   import { tagsApi, type Tag, flattenTags } from '$lib/api/tags';
   import { seriesApi, type EpisodeNavigation } from '$lib/api/series';
+  import { queueNeighbors, type QueueItem } from '$lib/stores/mediaQueue.svelte';
   import { player } from '$lib/stores/player.svelte';
   import { classifyNetworkUrl, openExternalUrl, isAdultNetworkMedia, extractFancode } from '$lib/utils/network-media';
   import { adultNetworkApi } from '$lib/api/networkSources';
@@ -39,6 +40,16 @@
     } else {
       goto('/media');
     }
+  }
+
+  // ---- 上一个 / 下一个（浏览队列顺序，与媒体库当前列表一致）----
+  // 用 URL 参数 id 而非 media.id：切换时 id 立即更新，箭头状态无需等待请求返回。
+  const queueNav = $derived(queueNeighbors(id));
+  function goSibling(item: QueueItem | null): void {
+    if (!item) return;
+    // replaceState：详情页之间横向切换不累积历史记录，
+    // 「返回」始终一步回到媒体库（并命中离开时保存的滚动锚点）。
+    goto(`/detail/${item.id}`, { replaceState: true });
   }
 
   // ---- 数据状态 ----
@@ -141,7 +152,7 @@
     aggregateResolving = true;
     try {
       // 走 adult-refresh（按 platform 去重 + 原地刷新过期直链）：
-      // 同一 server（vidhide/turboplay/streamwish）已存在的 source 原地更新
+      // 同一 server（vidhide/turboplay/streamwish/dood）已存在的 source 原地更新
       // 签名 URL 并清 is_expired，缺失的 server 才新增——避免每次点击重复
       // 追加导致"越点越多"，同时顺带刷新 36h 过期的直链解决"无效源"。
       const res = await adultNetworkApi.refresh(media.id, fc);
@@ -357,14 +368,15 @@
       }
       // 加载相似内容（基于标签匹配）
       // 逻辑：将当前媒体的所有标签作为过滤条件，查询拥有任意相同标签的媒体（OR 语义），
-      // 排除当前媒体自身，取前 8 条作为推荐。后端 GET /media?tag_ids=1,2,3 返回
-      // 至少包含其中一个标签的媒体。当媒体没有标签时跳过（返回空数组）。
+      // 排除当前媒体自身，取前 12 条作为推荐（6 列网格正好铺满两行）。后端
+      // GET /media?tag_ids=1,2,3 返回至少包含其中一个标签的媒体。
+      // 当媒体没有标签时跳过（返回空数组）。
       if (media && media.tags && media.tags.length > 0) {
         try {
-          const res = await mediaApi.list({ tags: media.tags, page: 1, page_size: 9 });
+          const res = await mediaApi.list({ tags: media.tags, page: 1, page_size: 13 });
           if (myId !== loadReqId) return;
-          // page_size=9 预留 1 条余量以覆盖当前媒体被包含的情况，过滤后取 8 条
-          similar = (res.items ?? []).filter((m) => m.id !== id).slice(0, 8);
+          // page_size=13 预留 1 条余量以覆盖当前媒体被包含的情况，过滤后取 12 条
+          similar = (res.items ?? []).filter((m) => m.id !== id).slice(0, 12);
         } catch {
           if (myId === loadReqId) similar = [];
         }
@@ -389,12 +401,16 @@
     loadSidebarData();
   });
 
-  // id 变化时重新加载（含首次挂载）
+  // id 变化时重新加载（含首次挂载）；横向切换时把右栏滚回顶部
   let lastId = '';
   $effect(() => {
     if (id !== lastId) {
       lastId = id;
-      untrack(() => loadMedia());
+      untrack(() => {
+        const body = document.querySelector<HTMLElement>('.detail-body');
+        if (body) body.scrollTop = 0;
+        void loadMedia();
+      });
     }
   });
 
@@ -690,7 +706,14 @@
   }
 
   function jumpToSegment(seg: Segment): void {
-    play(seg.start);
+    // 必须把起播时间经 URL 带进播放器：player store 的 seek 在 duration 仍为 0 时
+    // 会被 Math.min(start, 0) 钳成 0，播放器随后只能按 playback_position 续播
+    // （那个位置往往正是片段结尾，于是表现为"跳到了结束时间"）。
+    if (!media) return;
+    const target = `/player?id=${media.id}&t=${Math.floor(seg.start)}&from=${encodeURIComponent(`/detail/${media.id}`)}`;
+    goto(target).catch(() => {
+      player.toggleFullscreen();
+    });
   }
 
   // 从资源链接播放（确保 media 非空）
@@ -774,6 +797,10 @@
   let linkSaving = $state(false);
   let linkDeleteTarget = $state<MediaUrl | null>(null);
   let linkDeleteOpen = $state(false);
+
+  // 片段删除确认
+  let segmentDeleteTarget = $state<Segment | null>(null);
+  let segmentDeleteOpen = $state(false);
 
   // 轻量重新加载媒体（不闪烁 loading 状态）
   async function reloadMedia(): Promise<void> {
@@ -860,6 +887,28 @@
     linkDeleteOpen = true;
   }
 
+  // 片段标记删除：先弹确认框，确认后调后端 DELETE /segments/{id}，再重载媒体刷新列表
+  function confirmDeleteSegment(seg: Segment): void {
+    segmentDeleteTarget = seg;
+    segmentDeleteOpen = true;
+  }
+
+  async function deleteSegment(): Promise<void> {
+    if (!segmentDeleteTarget) return;
+    const segId = Number(segmentDeleteTarget.id);
+    const segLabel = segmentDeleteTarget.label ?? '未命名片段';
+    segmentDeleteOpen = false;
+    try {
+      await mediaApi.deleteSegment(segId);
+      showToast(`已删除片段「${segLabel}」`);
+      await reloadMedia();
+    } catch {
+      showToast('删除片段失败', 'err');
+    } finally {
+      segmentDeleteTarget = null;
+    }
+  }
+
   async function deleteResourceLink(): Promise<void> {
     if (!media || !linkDeleteTarget) return;
     const urlId = linkDeleteTarget.id;
@@ -912,7 +961,7 @@
 
 <svelte:head><title>{media ? displayTitle : '加载中'} — vitoice</title></svelte:head>
 
-{#if loading}
+{#if loading && !media}
   <div class="state">加载中…</div>
 {:else if error}
   <div class="state error">{error}</div>
@@ -1118,6 +1167,10 @@
         showRefreshSource={isAdultNet && !!adultFancode}
         onrefreshsource={refreshAdultSource}
         backdropUrl={backdropUrl}
+        onprev={queueNav.prev ? () => goSibling(queueNav.prev) : undefined}
+        onnext={queueNav.next ? () => goSibling(queueNav.next) : undefined}
+        prevTitle={queueNav.prev?.title ?? ''}
+        nextTitle={queueNav.next?.title ?? ''}
       />
 
       <!-- 演员阵容（独立区块） -->
@@ -1197,18 +1250,23 @@
           segments={segments}
           mediaDuration={media.duration}
           onjump={jumpToSegment}
+          ondelete={confirmDeleteSegment}
         />
-        {#if media?.path && !media?.file_missing}
+        <!-- 缩略图集是可再生的独立缓存文件；转为网络视频后本地路径被清空，
+             但已生成的缩略图集仍然可看，所以展示条件不能只依赖本地文件。 -->
+        {#if media?.has_contact_sheet || (media?.path && !media?.file_missing)}
           <section class="cs-section">
             <div class="cs-head">
               <h3>缩略图集</h3>
-              <button
-                class="cs-btn"
-                onclick={generateContactSheet}
-                disabled={csGenerating}
-              >
-                {csGenerating ? '生成中…（约十几秒）' : csState === 'ready' ? '重新生成' : '生成缩略图集'}
-              </button>
+              {#if media?.path && !media?.file_missing}
+                <button
+                  class="cs-btn"
+                  onclick={generateContactSheet}
+                  disabled={csGenerating}
+                >
+                  {csGenerating ? '生成中…（约十几秒）' : csState === 'ready' ? '重新生成' : '生成缩略图集'}
+                </button>
+              {/if}
             </div>
             {#if csGenerating}
               <div class="cs-placeholder">正在抽取 16 帧并合成 4×4 缩略图集…</div>
@@ -1223,7 +1281,13 @@
                 class:hidden={csState === 'absent'}
               />
               {#if csState === 'absent'}
-                <div class="cs-placeholder">尚未生成缩略图集，点击右上角按钮生成</div>
+                <div class="cs-placeholder">
+                  {#if media?.path && !media?.file_missing}
+                    尚未生成缩略图集，点击右上角按钮生成
+                  {:else}
+                    这条媒体没有本地文件（网络媒体），无法生成缩略图集
+                  {/if}
+                </div>
               {/if}
             {/if}
           </section>
@@ -1260,6 +1324,17 @@
   oncancel={() => (deleteDialogOpen = false)}
 />
 
+<!-- 片段标记删除确认对话框 -->
+<ConfirmDialog
+  bind:open={segmentDeleteOpen}
+  title="删除片段标记"
+  description={`将删除片段「${segmentDeleteTarget?.label ?? '未命名片段'}」（${segmentDeleteTarget ? formatTime(segmentDeleteTarget.start) : ''}）。\n\n只删除标记，不影响视频文件。`}
+  confirmText="删除"
+  danger={true}
+  onconfirm={deleteSegment}
+  oncancel={() => (segmentDeleteOpen = false)}
+/>
+
 <!-- 编辑媒体对话框（上传/更换/删除封面、编辑标题年份描述） -->
 <EditMediaDialog
   bind:open={editDialogOpen}
@@ -1270,8 +1345,17 @@
 
 <!-- 回收确认：将本地文件移入回收站（无网络源时附加"是否添加网络源"问询） -->
 {#if askAddNetworkOpen && media}
-  <div class="ask-overlay" onclick={() => (askAddNetworkOpen = false)}>
-    <div class="ask-card" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="ask-overlay"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) askAddNetworkOpen = false;
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') askAddNetworkOpen = false;
+    }}
+  >
+    <div class="ask-card" role="dialog" aria-modal="true" aria-label="将本地文件放入回收站" tabindex="-1">
       <div class="ask-header">
         <span class="ask-icon">⚠</span>
         <h3>将本地文件放入回收站？</h3>

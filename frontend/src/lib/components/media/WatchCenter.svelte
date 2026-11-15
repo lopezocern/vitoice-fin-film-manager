@@ -29,6 +29,17 @@
     else onOpenMedia(item.data);
   }
 
+  /** 封面是否可播：剧集没有单集可播，图片无法播放，二者回落详情页。 */
+  function playable(item: MediaHomeItem): boolean {
+    return item.kind === 'media' && item.data.type !== 'image';
+  }
+
+  /** 点击封面：可播的直接进播放器，其余进详情页（与媒体库卡片一致）。 */
+  function playItem(item: MediaHomeItem): void {
+    if (item.kind === 'media' && item.data.type !== 'image') onPlay(item.data);
+    else openItem(item);
+  }
+
   function imageUrl(item: MediaHomeItem): string | null {
     if (item.kind === 'series') {
       return item.data.poster_path ? seriesApi.posterUrl(item.data.id) : null;
@@ -140,21 +151,55 @@
       </header>
       <div class="shelf-grid">
         {#each items as item (item.kind + '-' + item.data.id)}
-          <button class="media-card" onclick={() => openItem(item)}>
-            <div class="poster" class:masked={isRestricted(item)}>
+          <button class="media-card">
+            <div
+              class="poster"
+              class:masked={isRestricted(item)}
+              onclick={() => playItem(item)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  playItem(item);
+                }
+              }}
+              role="button"
+              tabindex="-1"
+              title={playable(item) ? '点击封面播放' : '查看详情'}
+            >
               {@render artwork(item)}
               {#if item.kind === 'media' && !item.data.file_missing && (item.data.source_type === 'network' || item.data.source_type === 'both')}
                 <span class="net-badge" title={item.data.source_type === 'both' ? '本地 + 网络源' : '网络媒体'}>
                   {item.data.source_type === 'both' ? '本+网' : '网'}
                 </span>
               {/if}
+              {#if playable(item)}
+                <span class="play-hint" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
+                </span>
+              {/if}
               {#if isRestricted(item)}
                 <div class="content-mask" title="限制内容 — 点击查看"><span class="mask-icon">🔞</span></div>
               {/if}
             </div>
-            <div class="card-copy">
+            <div
+              class="card-copy"
+              onclick={() => openItem(item)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openItem(item);
+                }
+              }}
+              role="button"
+              tabindex="-1"
+              title="查看详情"
+            >
               <strong title={item.data.title}>{item.data.title}</strong>
-              <span>{meta(item)}</span>
+              <span class="card-sub">{meta(item)}</span>
+              <span class="detail-hint" aria-hidden="true">
+                查看详情
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+              </span>
             </div>
           </button>
         {/each}
@@ -282,9 +327,32 @@
   .media-card { min-width: 0; padding: 0; overflow: hidden; text-align: left; color: var(--ink); background: var(--bg2); border: 1px solid var(--rule); border-radius: 7px; cursor: pointer; transition: transform 160ms ease, border-color 160ms ease; }
   .media-card:hover { transform: translateY(-2px); border-color: var(--accent); }
   .poster { position: relative; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; background: var(--bg-soft); }
-  .card-copy { min-width: 0; padding: 9px 10px 11px; }
-  .card-copy strong { display: block; overflow: hidden; color: var(--ink); font-size: 13px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
-  .card-copy span { display: block; margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+  /* 封面 hover 播放提示（与媒体库卡片一致） */
+  .play-hint {
+    position: absolute; inset: 0; z-index: 3;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.45); color: #fff;
+    opacity: 0; transition: opacity 160ms ease; pointer-events: none;
+  }
+  .poster:hover .play-hint { opacity: 1; }
+  .card-copy { position: relative; min-width: 0; padding: 9px 10px 11px; cursor: pointer; transition: background 160ms ease; }
+  .card-copy:hover { background: var(--bg-soft); }
+  .card-copy strong { display: block; overflow: hidden; color: var(--ink); font-size: 13px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; transition: color 160ms ease; }
+  .card-copy:hover strong { color: var(--accent); }
+  .card-sub { display: block; margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; transition: opacity 140ms ease; }
+  .card-copy:hover .card-sub { opacity: 0; }
+  /* 底部信息区 hover 提示：meta 淡出，'查看详情 ›' 滑入 + 箭头持续微动 */
+  .detail-hint {
+    position: absolute; left: 10px; bottom: 11px;
+    display: inline-flex; align-items: center; gap: 3px;
+    color: var(--accent); font-size: 11px; font-weight: 650;
+    opacity: 0; transform: translateX(-6px);
+    transition: opacity 160ms ease, transform 160ms ease;
+    pointer-events: none;
+  }
+  .card-copy:hover .detail-hint { opacity: 1; transform: translateX(0); }
+  .detail-hint svg { animation: hint-nudge 1.1s ease-in-out infinite; }
+  @keyframes hint-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
   .art-fallback { width: 100%; height: 100%; display: grid; place-items: center; color: var(--muted); background: var(--bg-soft); }
   .content-mask {
     position: absolute; inset: 0;

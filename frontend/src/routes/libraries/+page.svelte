@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   // 资源库配置页：管理所有资源库
   // 后端 LibraryResponse 含完整字段（type / scrape_mode / watch_enabled / media_count）
   // 使用 client 直接获取完整数据（前端 libraries.ts 接口较精简）
@@ -347,8 +347,17 @@
 
 <!-- 编辑对话框 -->
 {#if editOpen}
-  <div class="modal-overlay" onclick={() => !saving && (editOpen = false)}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget && !saving) editOpen = false;
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape' && !saving) editOpen = false;
+    }}
+  >
+    <div class="modal" role="dialog" aria-modal="true" aria-label="编辑资源库" tabindex="-1">
       <h3>编辑资源库</h3>
       {#if editing}
         <div class="modal-body">
@@ -380,6 +389,8 @@
               onclick={() => (editWatch = !editWatch)}
               role="switch"
               aria-checked={editWatch}
+              aria-label="启用文件监控"
+              title="启用文件监控"
             >
               <span class="knob"></span>
             </button>
@@ -396,6 +407,8 @@
               onclick={() => (editRestricted = !editRestricted)}
               role="switch"
               aria-checked={editRestricted}
+              aria-label="限制内容"
+              title="限制内容"
             >
               <span class="knob"></span>
             </button>
@@ -416,7 +429,9 @@
 {#if deleteOpen}
   <div
     class="modal-overlay"
-    onclick={() => cancelDelete()}
+    onclick={(e) => {
+      if (e.target === e.currentTarget) cancelDelete();
+    }}
     onkeydown={(e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -427,7 +442,6 @@
   >
     <div
       class="modal delete-modal"
-      onclick={(e) => e.stopPropagation()}
       role="dialog"
       aria-modal="true"
       aria-labelledby="delete-lib-title"

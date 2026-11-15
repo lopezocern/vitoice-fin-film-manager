@@ -3,15 +3,17 @@ import asyncio
 import json
 import logging
 import os
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session, get_db
 from app.models.library import MediaLibrary
+from app.models.library_snapshot import LibrarySizeSnapshot
 from app.models.media import Media, VideoTag
 from app.models.tag import Tag
 from app.models.enums import MediaType, TaskStatus, TaskType
@@ -75,7 +77,36 @@ async def _count_media(db: AsyncSession, library_id: int) -> int:
     return result.scalar() or 0
 
 
-def _to_response(lib: MediaLibrary, media_count: int = 0) -> LibraryResponse:
+def _library_aggregates():
+    """Aggregate columns shared by the list and single-library endpoints.
+
+    All three come from one SELECT so a library card never mixes numbers from
+    different points in time (and never costs an extra query per library).
+    """
+    return (
+        func.count(Media.id).label("media_count"),
+        func.coalesce(func.sum(Media.file_size), 0).label("total_size"),
+        func.coalesce(
+            func.sum(case((Media.file_missing == True, 1), else_=0)), 0  # noqa: E712
+        ).label("missing_count"),
+    )
+
+
+async def _library_stats(db: AsyncSession, library_id: int) -> tuple[int, int, int]:
+    """Return ``(media_count, missing_count, total_size)`` for one library."""
+    result = await db.execute(
+        select(*_library_aggregates()).where(Media.library_id == library_id)
+    )
+    media_count, total_size, missing_count = result.one()
+    return int(media_count or 0), int(missing_count or 0), int(total_size or 0)
+
+
+def _to_response(
+    lib: MediaLibrary,
+    media_count: int = 0,
+    missing_count: int = 0,
+    total_size: int = 0,
+) -> LibraryResponse:
     """Convert ORM to response with masked root_path."""
     resp = LibraryResponse.model_validate({
         "id": lib.id,
@@ -98,6 +129,8 @@ def _to_response(lib: MediaLibrary, media_count: int = 0) -> LibraryResponse:
         "created_at": lib.created_at.isoformat() if lib.created_at else "",
         "updated_at": lib.updated_at.isoformat() if lib.updated_at else "",
         "media_count": media_count,
+        "missing_count": missing_count,
+        "total_size": total_size,
     })
     return resp
 
@@ -132,10 +165,7 @@ async def _enqueue_scan_if_idle(library_id: int, lib_name: str) -> dict:
 async def list_libraries(db: AsyncSession = Depends(get_db)):
     """List all libraries with media counts (single query, no N+1)."""
     query = (
-        select(
-            MediaLibrary,
-            func.count(Media.id).label("media_count"),
-        )
+        select(MediaLibrary, *_library_aggregates())
         .outerjoin(Media, MediaLibrary.id == Media.library_id)
         .group_by(MediaLibrary.id)
         .order_by(MediaLibrary.created_at)
@@ -147,17 +177,99 @@ async def list_libraries(db: AsyncSession = Depends(get_db)):
         query = query.where(~MediaLibrary.id.in_(restricted_ids))
 
     result = await db.execute(query)
+    rows = result.fetchall()
     libraries = []
-    for lib, count in result.fetchall():
-        libraries.append(_to_response(lib, count or 0))
+    for lib, count, total_size, missing_count in rows:
+        libraries.append(
+            _to_response(lib, count or 0, missing_count or 0, total_size or 0)
+        )
+
+    # 容量趋势：每次读取库列表时顺手记一个"当天"的快照（幂等）。
+    # 放在这里而不是扫描任务里，是因为扫描可能几天不跑，而趋势需要连续的点。
+    try:
+        await _record_daily_snapshots(db, rows)
+    except Exception:  # noqa: BLE001 — 快照失败不能影响库列表
+        logger.warning("记录容量快照失败", exc_info=True)
+
     return libraries
+
+
+async def _record_daily_snapshots(db: AsyncSession, rows) -> None:
+    """为每个库写入/更新今天的容量快照（同一库同一天只有一行）。"""
+    today = date.today()
+    existing = set(
+        (
+            await db.execute(
+                select(LibrarySizeSnapshot.library_id).where(
+                    LibrarySizeSnapshot.captured_on == today
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    changed = False
+    for lib, count, total_size, missing_count in rows:
+        values = {
+            "media_count": count or 0,
+            "total_size": total_size or 0,
+            "missing_count": missing_count or 0,
+        }
+        if lib.id in existing:
+            await db.execute(
+                update(LibrarySizeSnapshot)
+                .where(
+                    LibrarySizeSnapshot.library_id == lib.id,
+                    LibrarySizeSnapshot.captured_on == today,
+                )
+                .values(**values)
+            )
+        else:
+            db.add(LibrarySizeSnapshot(library_id=lib.id, captured_on=today, **values))
+        changed = True
+    if changed:
+        await db.commit()
+
+
+@router.get("/size-history")
+async def library_size_history(
+    days: int = Query(30, ge=2, le=365),
+    db: AsyncSession = Depends(get_db),
+):
+    """各库最近 N 天的容量趋势（按天聚合，缺失的日期不补点）。"""
+    since = date.today() - timedelta(days=days - 1)
+    rows = (
+        await db.execute(
+            select(
+                LibrarySizeSnapshot.library_id,
+                LibrarySizeSnapshot.captured_on,
+                LibrarySizeSnapshot.media_count,
+                LibrarySizeSnapshot.total_size,
+                LibrarySizeSnapshot.missing_count,
+            )
+            .where(LibrarySizeSnapshot.captured_on >= since)
+            .order_by(LibrarySizeSnapshot.captured_on.asc())
+        )
+    ).fetchall()
+
+    series: dict[str, list[dict]] = {}
+    for library_id, captured_on, media_count, total_size, missing_count in rows:
+        series.setdefault(str(library_id), []).append(
+            {
+                "date": captured_on.isoformat(),
+                "media_count": media_count,
+                "total_size": total_size,
+                "missing_count": missing_count,
+            }
+        )
+    return {"days": days, "series": series}
 
 
 @router.get("/{library_id}", response_model=LibraryResponse)
 async def get_library(library_id: int, db: AsyncSession = Depends(get_db)):
     lib = await _get_library_or_404(db, library_id)
-    count = await _count_media(db, library_id)
-    return _to_response(lib, count)
+    media_count, missing_count, total_size = await _library_stats(db, library_id)
+    return _to_response(lib, media_count, missing_count, total_size)
 
 
 @router.post("", response_model=LibraryResponse, status_code=201)
@@ -444,6 +556,12 @@ class TreeNode(BaseModel):
     is_scraped: bool = False
     has_poster: bool = False
     child_count: int | None = None  # immediate child count for directories
+    # ---- 目录级统计（仅目录节点）----
+    # 递归统计该目录及其子目录下的媒体记录，用于"按文件夹推进治理"。
+    # media_count=None 表示该库没有可统计的媒体行（或统计被跳过）。
+    media_count: int | None = None
+    missing_count: int | None = None
+    no_poster_count: int | None = None
 
 
 class TreeResponse(BaseModel):
@@ -452,6 +570,52 @@ class TreeResponse(BaseModel):
     library_name: str
     rel_path: str  # the directory that was listed ("" = root)
     nodes: list[TreeNode]
+
+
+async def _dir_stats(
+    db: AsyncSession, lib: MediaLibrary, rel_paths: list[str]
+) -> dict[str, dict[str, int]]:
+    """每个目录（递归含子目录）的媒体数 / 缺失数 / 缺封面数。
+
+    「按文件夹推进治理」需要的是"这个文件夹下有多少片要处理"，
+    所以统计口径是**前缀递归**，而不是只数本目录的直接文件。
+
+    一次查询取回全库的 (file_path, file_missing, poster_path, thumbnail_path)，
+    在内存里按前缀累加——比每个目录发一条 SQL 少 N 次往返；库内有几十万条时
+    应改成 SQL 侧聚合，这里按当前量级（千级）选择了简单实现。
+    """
+    if not rel_paths:
+        return {}
+
+    rows = await db.execute(
+        select(Media.file_path, Media.file_missing, Media.poster_path, Media.thumbnail_path).where(
+            Media.library_id == lib.id,
+            Media.is_deleted == False,  # noqa: E712
+            Media.file_path.is_not(None),
+        )
+    )
+
+    root = str(lib.root_path).replace("\\", "/").rstrip("/").lower()
+    # 预先把每个目录归一化成前缀，避免在循环里重复做字符串处理
+    prefixes = {
+        rel: (f"{root}/{rel.replace(chr(92), '/')}".lower().rstrip("/") + "/")
+        for rel in rel_paths
+    }
+    stats = {rel: {"media_count": 0, "missing_count": 0, "no_poster_count": 0} for rel in rel_paths}
+
+    for file_path, file_missing, poster, thumbnail in rows.all():
+        if not file_path:
+            continue
+        norm = file_path.replace("\\", "/").lower()
+        for rel, prefix in prefixes.items():
+            if norm.startswith(prefix):
+                bucket = stats[rel]
+                bucket["media_count"] += 1
+                if file_missing:
+                    bucket["missing_count"] += 1
+                if poster is None and thumbnail is None:
+                    bucket["no_poster_count"] += 1
+    return stats
 
 
 def _list_dir_sync(root: Path, rel: str) -> list[dict]:
@@ -581,6 +745,7 @@ async def get_library_tree(
 
     # Build response nodes
     nodes: list[TreeNode] = []
+    dir_stats = await _dir_stats(db, lib, [item["rel_path"] for item in raw_items if item["is_dir"]])
     for item in raw_items:
         if item["is_dir"]:
             # Count immediate children for display (lazy: just count, don't recurse)
@@ -594,12 +759,16 @@ async def get_library_tree(
                 )
             except (OSError, PermissionError):
                 child_count = 0
+            stats = dir_stats.get(item["rel_path"])
             nodes.append(TreeNode(
                 name=item["name"],
                 rel_path=item["rel_path"],
                 node_type="directory",
                 modified_at=item.get("modified_at"),
                 child_count=child_count,
+                media_count=stats["media_count"] if stats else None,
+                missing_count=stats["missing_count"] if stats else None,
+                no_poster_count=stats["no_poster_count"] if stats else None,
             ))
         else:
             full = str(target / item["name"])
@@ -681,11 +850,6 @@ class CreateDirRequest(BaseModel):
 class RenameDirRequest(BaseModel):
     old_rel_path: str  # relative to library root
     new_name: str
-
-
-class DeleteDirRequest(BaseModel):
-    rel_path: str  # relative to library root
-    recursive: bool = False  # if True, delete all contents
 
 
 @router.post("/{library_id}/directories", status_code=201)

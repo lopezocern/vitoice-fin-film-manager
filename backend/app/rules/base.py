@@ -20,7 +20,6 @@ from sqlalchemy import Select, and_, or_
 from sqlalchemy.sql.elements import BinaryExpression
 
 from app.models.media import Media
-from app.models.tag import VideoTag
 
 
 class RuleHandler(ABC):

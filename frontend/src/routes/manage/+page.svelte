@@ -1,62 +1,53 @@
 <script lang="ts">
-  // 管理页 - 全局治理页，处理批量操作和破坏性操作
-  // 与 /media 页筛选独立
-  // 支持新的 ?section=overview|files|assets|tags|recycle，同时兼容旧 ?tab= 参数
+  // 管理页 — 薄编排层（PR4：5 个 section）。
   //
-  // 父组件职责（薄编排层）：
-  //   1. 管理 active tab 状态（从 URL ?tab= 读取）
-  //   2. 加载共享数据（libraries、tags），供 MediaManageView 使用
-  //   3. 根据 tab 渲染对应子组件
+  //   section=assets    资产工作台（唯一列表层 + 摘要条）
+  //   section=tags      标签治理
+  //   section=trash     回收站
+  //   section=runs      运行（任务 + 历史，tab 区分）
+  //   section=libraries 资源库状态（含库健康）
   //
-  // 各 Tab 视图逻辑已在子组件中实现：
-  //   - MediaManageView.svelte 媒体管理（筛选/批量操作/列表/网格）
-  //   - TagsManageView.svelte  标签管理
-  //   - RecycleBinView.svelte  回收站
-
+  // 旧 `?section=overview|files|issues|metadata|tasks|history` 一律在
+  // `+page.ts` 里 307 重定向到上面五项（见该文件顶部的迁移表）。
   import { liveQueryParam } from '$lib/stores/urlState.svelte';
-  import OverviewView from '$lib/components/manage/OverviewView.svelte';
-  import FileExplorerView from '$lib/components/manage/FileExplorerView.svelte';
-  import ManageModuleView from '$lib/components/manage/ManageModuleView.svelte';
+  import AssetsWorkspace from '$lib/components/manage/AssetsWorkspace.svelte';
+  import RunsView from '$lib/components/manage/RunsView.svelte';
+  import LibrariesStatusView from '$lib/components/manage/LibrariesStatusView.svelte';
   import TagsManageView from '$lib/components/manage/TagsManageView.svelte';
   import RecycleBinView from '$lib/components/manage/RecycleBinView.svelte';
 
-  type ManageSection = 'dashboard' | 'files' | 'issues' | 'assets' | 'metadata' | 'tags' | 'trash' | 'tasks' | 'history' | 'libraries';
+  type ManageSection = 'assets' | 'tags' | 'trash' | 'runs' | 'libraries';
+
   // 用 liveQueryParam 而非 $pageStore.url：popstate 重挂载时只恢复 pathname、丢 query，
-  // section 会退回 files 并被写回 URL，覆盖刚返回的历史条目。
+  // section 会退回默认值并被写回 URL，覆盖刚返回的历史条目。
   const currentSection = $derived.by((): ManageSection => {
-    const section = liveQueryParam('section');
-    if (section === 'overview') return 'dashboard';
-    if (section === 'recycle') return 'trash';
-    // 媒体资产已并入媒体管理：?section=assets 与 ?tab=media 都进入 files（默认媒体资产视图）
-    if (section === 'assets') return 'files';
-    if (section === 'dashboard' || section === 'files' || section === 'issues' || section === 'metadata' || section === 'tags' || section === 'trash' || section === 'tasks' || section === 'history' || section === 'libraries') {
+    const raw = liveQueryParam('section');
+    const section = raw === 'recycle' ? 'trash' : raw;
+    if (section === 'tags' || section === 'trash' || section === 'runs' || section === 'libraries') {
       return section;
     }
-    const tab = liveQueryParam('tab');
-    if (tab === 'tags') return 'tags';
-    if (tab === 'recycle') return 'trash';
-    return 'files';
+    return 'assets';
   });
+
+  const runsTab = $derived(liveQueryParam('tab') === 'history' ? 'history' : 'tasks');
 </script>
 
 <svelte:head><title>管理 — vitoice</title></svelte:head>
 
 <div class="manage-page">
   <div class="manage-main">
-    {#if currentSection === 'dashboard'}
-      <OverviewView />
-    {:else if currentSection === 'files'}
-      <FileExplorerView />
+    {#if currentSection === 'assets'}
+      <AssetsWorkspace />
     {:else if currentSection === 'tags'}
-      <!-- ============ 标签管理视图 ============ -->
       <div class="tags-view">
         <TagsManageView />
       </div>
     {:else if currentSection === 'trash'}
-      <!-- ============ 回收站视图 ============ -->
       <RecycleBinView />
+    {:else if currentSection === 'runs'}
+      <RunsView tab={runsTab} />
     {:else}
-      <ManageModuleView kind={currentSection as 'issues' | 'metadata' | 'tasks' | 'history' | 'libraries'} />
+      <LibrariesStatusView />
     {/if}
   </div>
 </div>
@@ -77,7 +68,7 @@
     min-height: 0;
   }
 
-  /* 标签管理视图容器 — 必须撑满高度并传递 flex 链 */
+  /* 标签治理视图容器 — 必须撑满高度并传递 flex 链 */
   .tags-view {
     flex: 1;
     display: flex;

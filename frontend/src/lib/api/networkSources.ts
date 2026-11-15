@@ -32,4 +32,9 @@ export const adultNetworkApi = {
       '/network/adult-refresh',
       { media_id: Number(mediaId), fancode, base_url: baseUrl || undefined },
     ),
+  /** Aggregator article page for a fancode (open-on-original-site fallback). */
+  page: (fancode: string) =>
+    client.get<{ fancode: string; page_url: string }>('/network/adult-page', {
+      fancode,
+    }),
 };

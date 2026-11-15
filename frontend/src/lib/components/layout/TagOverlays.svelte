@@ -29,6 +29,8 @@
             class="ctx-color"
             class:active={tagOps.typeContextMenu!.type.color === c}
             style={`background:${c}`}
+            aria-label={`颜色 ${c}`}
+            title={`颜色 ${c}`}
             onclick={() => tagOps.changeTypeColor(tagOps.typeContextMenu!.type, c)}
           ></button>
         {/each}
@@ -48,10 +50,8 @@
 {#if tagOps.deleteConfirmType}
   <!-- svelte-ignore a11y_click_events_have_keyevents -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="del-backdrop" role="button" tabindex="-1" aria-label="关闭弹窗" onclick={() => (tagOps.deleteConfirmType = null)} onkeydown={(e) => e.key === 'Escape' && (tagOps.deleteConfirmType = null)}>
-    <!-- svelte-ignore a11y_click_events_have_keyevents -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="del-dialog" role="dialog" aria-label="删除确认" onclick={(e) => e.stopPropagation()}>
+  <div class="del-backdrop" role="button" tabindex="-1" aria-label="关闭弹窗" onclick={(e) => { if (e.target === e.currentTarget) tagOps.deleteConfirmType = null; }} onkeydown={(e) => e.key === 'Escape' && (tagOps.deleteConfirmType = null)}>
+    <div class="del-dialog" role="dialog" aria-label="删除确认" tabindex="-1">
       <div class="del-title">确认删除标签类型？</div>
       <div class="del-desc">
         「{displayTypeName(tagOps.deleteConfirmType.name)}」及其所有标签将被永久删除，关联媒体将解除这些标签。
@@ -115,10 +115,8 @@
 {#if tagOps.deleteConfirmTag}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="del-backdrop" role="button" tabindex="-1" aria-label="关闭弹窗" onclick={() => (tagOps.deleteConfirmTag = null)} onkeydown={(e) => e.key === 'Escape' && (tagOps.deleteConfirmTag = null)}>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="del-dialog" role="dialog" aria-label="删除确认" onclick={(e) => e.stopPropagation()}>
+  <div class="del-backdrop" role="button" tabindex="-1" aria-label="关闭弹窗" onclick={(e) => { if (e.target === e.currentTarget) tagOps.deleteConfirmTag = null; }} onkeydown={(e) => e.key === 'Escape' && (tagOps.deleteConfirmTag = null)}>
+    <div class="del-dialog" role="dialog" aria-label="删除确认" tabindex="-1">
       <div class="del-title">确认删除标签？</div>
       <div class="del-desc">
         「{tagOps.deleteConfirmTag.name}」及其子标签将被永久删除，关联媒体将解除此标签。

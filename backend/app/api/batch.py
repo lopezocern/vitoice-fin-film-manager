@@ -616,7 +616,14 @@ async def _create_batch_task(
 
     # Start background execution (keep strong reference to prevent GC collection
     # of the asyncio.Task before it completes).
-    task = asyncio.create_task(_run_batch_async(task_id, media_ids, action))
+    task = asyncio.create_task(
+        _run_batch_async(
+            task_id,
+            media_ids,
+            action,
+            force=bool((payload.params or {}).get("force")),
+        )
+    )
     _active_batch_tasks.add(task)
     task.add_done_callback(_active_batch_tasks.discard)
 
@@ -630,7 +637,7 @@ async def _create_batch_task(
 
 
 async def _run_batch_async(
-    task_id: int, media_ids: list[int], action: str
+    task_id: int, media_ids: list[int], action: str, force: bool = False
 ) -> None:
     """Background coroutine that runs a batch scrape or thumbnail job.
 
@@ -651,7 +658,7 @@ async def _run_batch_async(
 
     result_msg: str
     try:
-        result_msg = await _batch_worker(task_id, media_ids, action)
+        result_msg = await _batch_worker(task_id, media_ids, action, force=force)
         # Mark completed
         async with async_session() as session:
             task = await session.get(Task, task_id)
@@ -674,12 +681,19 @@ async def _run_batch_async(
                 await session.commit()
 
 
-async def _batch_worker(task_id: int, media_ids: list[int], action: str) -> str:
+async def _batch_worker(
+    task_id: int, media_ids: list[int], action: str, force: bool = False
+) -> str:
     """Worker for async batch operations (scrape/thumbnail).
 
     Accepts plain values (not a TaskData object) because it is called
     directly via _run_batch_async rather than through the TaskManager
     dispatch loop.
+
+    Thumbnail / contact-sheet items that already exist on disk are skipped
+    (counted separately) unless ``force`` is set — re-running a batch must not
+    burn ffmpeg time re-rendering identical output. The output paths are fixed
+    per media id, so a skip also avoids a pointless overwrite.
     """
     from app.services.scraper import scrape_media
     from app.services.thumbnail import generate_thumbnail
@@ -687,6 +701,7 @@ async def _batch_worker(task_id: int, media_ids: list[int], action: str) -> str:
 
     success: list[int] = []
     failed: list[dict] = []
+    skipped = 0
 
     for i, media_id in enumerate(media_ids):
         try:
@@ -723,33 +738,56 @@ async def _batch_worker(task_id: int, media_ids: list[int], action: str) -> str:
                         from app.config import settings
                         import os
 
-                        output = os.path.join(
-                            settings.thumbnail_dir, f"{media.id}.jpg"
-                        )
-                        ok = await generate_thumbnail(
-                            media.file_path, output, duration=media.duration
-                        )
-                        if ok:
-                            media.thumbnail_path = output
-                            await db.commit()
-                            success.append(media_id)
+                        # Already has a usable poster thumbnail → skip.
+                        existing = media.thumbnail_path or ""
+                        if (
+                            not force
+                            and existing
+                            and os.path.isfile(existing)
+                            and os.path.getsize(existing) > 0
+                        ):
+                            skipped += 1
                         else:
-                            failed.append(
-                                {"id": media_id, "error": "缩略图生成失败"}
+                            output = os.path.join(
+                                settings.thumbnail_dir, f"{media.id}.jpg"
                             )
+                            ok = await generate_thumbnail(
+                                media.file_path, output, duration=media.duration
+                            )
+                            if ok:
+                                media.thumbnail_path = output
+                                await db.commit()
+                                success.append(media_id)
+                            else:
+                                failed.append(
+                                    {"id": media_id, "error": "缩略图生成失败"}
+                                )
                     else:
                         failed.append({"id": media_id, "error": "无文件路径"})
                 elif action == "contact_sheet":
-                    from app.services.contact_sheet import generate_contact_sheet
+                    from app.services.contact_sheet import (
+                        contact_sheet_path,
+                        generate_contact_sheet,
+                    )
 
                     if media.file_path and not media.file_missing:
-                        ok = await generate_contact_sheet(
-                            media.file_path, media.id, float(media.duration or 0)
-                        )
-                        if ok:
-                            success.append(media_id)
+                        # 已生成过（文件存在且非空）→ 跳过，除非显式 force
+                        # 重新生成。缩略图集是纯缓存，重复跑只会浪费时间。
+                        sheet = contact_sheet_path(media.id)
+                        if (
+                            not force
+                            and sheet.is_file()
+                            and sheet.stat().st_size > 0
+                        ):
+                            skipped += 1
                         else:
-                            failed.append({"id": media_id, "error": "缩略图集生成失败"})
+                            ok = await generate_contact_sheet(
+                                media.file_path, media.id, float(media.duration or 0)
+                            )
+                            if ok:
+                                success.append(media_id)
+                            else:
+                                failed.append({"id": media_id, "error": "缩略图集生成失败"})
                     else:
                         failed.append({"id": media_id, "error": "无本地文件或文件缺失"})
         except Exception as exc:  # noqa: BLE001
@@ -767,6 +805,8 @@ async def _batch_worker(task_id: int, media_ids: list[int], action: str) -> str:
             logger.debug("Progress update failed for batch task %d", task_id, exc_info=True)
 
     result_msg = f"成功 {len(success)}/{len(media_ids)}"
+    if skipped:
+        result_msg += f"，跳过 {skipped}（已存在）"
     if failed:
         result_msg += f"，失败 {len(failed)}"
     return result_msg

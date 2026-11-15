@@ -3,6 +3,7 @@
 Importing this module ensures all tables are created by init_db() / Alembic.
 """
 from app.models.library import MediaLibrary
+from app.models.library_snapshot import LibrarySizeSnapshot
 from app.models.media import Media, MediaUrl
 from app.models.series import Series
 from app.models.segment import Segment
@@ -15,6 +16,7 @@ from app.models.task import Task
 # Collect for easy iteration
 all_models = [
     MediaLibrary,
+    LibrarySizeSnapshot,
     Media,
     MediaUrl,
     Series,

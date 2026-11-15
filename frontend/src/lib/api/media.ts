@@ -68,11 +68,6 @@ export function hasNetworkSource(media: Media): boolean {
   return !!media.urls?.some((u) => u.url_role === 'source' && !u.is_expired);
 }
 
-/** Returns true if the media can be played locally (has a local file that is not missing). */
-export function canPlayLocal(media: Media): boolean {
-  return !media.file_missing && media.source_type !== 'network' && !!media.path;
-}
-
 /** Returns the first playable source URL, or null if none. */
 export function getNetworkSourceUrl(media: Media): string | null {
   const source = media.urls?.find((u) => u.url_role === 'source' && !u.is_expired);
@@ -142,6 +137,8 @@ export type MediaPayload = {
   id?: number | string | null;
   library_id?: number | string | null;
   file_path?: string | null;
+  /** 未脱敏的真实路径，仅详情接口返回；mpv 内核读文件用。 */
+  local_path?: string | null;
   file_name?: string | null;
   mime_type?: string | null;
   title?: string | null;
@@ -182,6 +179,7 @@ export interface MediaListRawResponse {
   total?: number;
   page?: number;
   page_size?: number;
+  total_pages?: number;
 }
 
 /** One entry of GET /api/media/home before normalization. */
@@ -241,13 +239,38 @@ export interface MediaListParams {
   exclude_series?: boolean;
   has_series?: boolean;
   tag_match?: 'any' | 'all';
+  // --- Issue predicates (mirror app/services/media_query.py) ---
+  /** `false` → neither a poster nor a thumbnail exists. */
+  has_poster?: boolean;
+  /** `missing` = needs work, `ignored` = user opted out, `complete` = done. */
+  metadata_status?: MetadataStatus;
+  /** `true` → the item has no tags at all. */
+  untagged?: boolean;
+  /** Exclude NETWORK-only media (they never have a local file). */
+  exclude_network?: boolean;
+  /** Union of file_missing / no_poster / metadata_missing — never a sum. */
+  problem?: boolean;
+  /**
+   * 只取匹配的 id（跨页全选用）。忽略分页，`items` 返回空数组。
+   * 后端上限 20000 条，超出会 413 并提示缩小范围。
+   */
+  ids_only?: boolean;
 }
+
+/** GET /api/media?ids_only=true 的返回（items 为空）。 */
+export interface MediaIdListResponse {
+  total: number;
+  ids: number[];
+}
+
+export type MetadataStatus = 'missing' | 'ignored' | 'complete';
 
 export interface MediaListResponse {
   items: Media[];
   total: number;
   page: number;
   page_size: number;
+  total_pages?: number;
 }
 
 export interface MediaFacetItem {
@@ -467,18 +490,73 @@ export const mediaApi = {
     if (params.exclude_series !== undefined) apiParams.exclude_series = params.exclude_series;
     if (params.has_series !== undefined) apiParams.has_series = params.has_series;
     if (params.tag_match !== undefined) apiParams.tag_match = params.tag_match;
+    // Issue predicates — names match the backend 1:1, so no renaming needed.
+    if (params.has_poster !== undefined) apiParams.has_poster = params.has_poster;
+    if (params.metadata_status !== undefined) apiParams.metadata_status = params.metadata_status;
+    if (params.untagged !== undefined) apiParams.untagged = params.untagged;
+    if (params.exclude_network !== undefined) apiParams.exclude_network = params.exclude_network;
+    if (params.problem !== undefined) apiParams.problem = params.problem;
+    if (params.ids_only !== undefined) apiParams.ids_only = params.ids_only;
 
     // 媒体列表默认 noCache：列表是"当前筛选/设置状态"的实时反映（受限开关、
     // 打标、移动库等操作后必须立即拿到最新），30s GET 缓存会导致操作后
     // 列表显示旧数据（用户感知为"刷新不即时"）。列表请求量小，本地后端可承受。
     const raw = await client.get<MediaListRawResponse>('/media', apiParams, signal, true);
     const items = Array.isArray(raw?.items) ? raw.items.map(normalizeMedia) : [];
+    const pageSize = raw?.page_size ?? items.length;
     return {
       items,
       total: raw?.total ?? items.length,
       page: raw?.page ?? 1,
-      page_size: raw?.page_size ?? items.length
+      page_size: pageSize,
+      total_pages:
+        raw?.total_pages ??
+        (raw?.total !== undefined && pageSize > 0 ? Math.ceil(raw.total / pageSize) : undefined)
     };
+  },
+
+  /**
+   * 取「与当前筛选条件匹配的全部 id」——跨页全选用。
+   *
+   * 为什么不复用 list() 逐页拉：一页 200 条约 800KB 完整对象，874 条要 3.4MB，
+   * 上万条则是几十 MB。这个接口只返回 id 列，且不分页。
+   */
+  listIds: async (params: MediaListParams = {}): Promise<MediaIdListResponse> => {
+    const apiParams: Params = { ids_only: true };
+    if (params.library_id !== undefined) apiParams.library_id = params.library_id;
+    if (params.dir !== undefined) apiParams.dir = params.dir;
+    if (params.type !== undefined) apiParams.content_type = params.type;
+    if (params.source !== undefined) apiParams.source = params.source;
+    if (params.file_missing !== undefined) apiParams.file_missing = params.file_missing;
+    if (params.q !== undefined) apiParams.search = params.q;
+    if (params.tags && params.tags.length > 0) apiParams.tag_ids = params.tags.join(',');
+    if (params.favorite !== undefined) apiParams.is_favorite = params.favorite;
+    if (params.rating_min !== undefined) apiParams.rating_min = params.rating_min;
+    if (params.rating_max !== undefined) apiParams.rating_max = params.rating_max;
+    if (params.duration_min !== undefined) apiParams.duration_min = params.duration_min;
+    if (params.duration_max !== undefined) apiParams.duration_max = params.duration_max;
+    if (params.resolution_min !== undefined) apiParams.resolution_min = params.resolution_min;
+    if (params.resolution_max !== undefined) apiParams.resolution_max = params.resolution_max;
+    if (params.in_progress !== undefined) apiParams.in_progress = params.in_progress;
+    if (params.genre !== undefined) apiParams.genre = params.genre;
+    if (params.country !== undefined) apiParams.country = params.country;
+    if (params.year !== undefined) apiParams.year = params.year;
+    if (params.exclude_series !== undefined) apiParams.exclude_series = params.exclude_series;
+    if (params.has_series !== undefined) apiParams.has_series = params.has_series;
+    if (params.tag_match !== undefined) apiParams.tag_match = params.tag_match;
+    if (params.has_poster !== undefined) apiParams.has_poster = params.has_poster;
+    if (params.metadata_status !== undefined) apiParams.metadata_status = params.metadata_status;
+    if (params.untagged !== undefined) apiParams.untagged = params.untagged;
+    if (params.exclude_network !== undefined) apiParams.exclude_network = params.exclude_network;
+    if (params.problem !== undefined) apiParams.problem = params.problem;
+
+    const raw = await client.get<{ total?: number; ids?: number[] | null }>(
+      '/media',
+      apiParams,
+      undefined,
+      true
+    );
+    return { total: raw?.total ?? 0, ids: raw?.ids ?? [] };
   },
 
   get: async (id: string): Promise<Media> =>
@@ -540,6 +618,11 @@ export const mediaApi = {
 
   deleteUrl: async (mediaId: string, urlId: number): Promise<void> =>
     client.delete<void>(`/media/${mediaId}/urls/${urlId}`),
+
+  // ---- Segment CRUD ----
+  /** 删除片段标记（后端 DELETE /segments/{segment_id}）。 */
+  deleteSegment: (segmentId: number): Promise<void> =>
+    client.delete<void>(`/segments/${segmentId}`),
 
   /** Trigger a TMDB scrape for a single media item; returns the updated media. */
   scrape: async (id: string): Promise<Media> =>
@@ -625,5 +708,20 @@ export const mediaApi = {
    * and caches the image; returns 404 for AV / media without a backdrop.
    */
   backdropUrl: (id: string, version?: string) =>
-    `${BASE_URL}/media/${id}/backdrop${version ? `?v=${encodeURIComponent(version)}` : ''}`
+    `${BASE_URL}/media/${id}/backdrop${version ? `?v=${encodeURIComponent(version)}` : ''}`,
+
+  /**
+   * Ask the backend to pre-generate progress-bar hover previews around a
+   * position, in the background. Called when the player opens and after each
+   * seek, so hovering the progress bar near the current position shows frames
+   * instantly instead of waiting for an ffmpeg extraction. Returns as soon as
+   * the job is queued.
+   */
+  prefetchScreenshots: (id: string, center: number, window?: number) => {
+    const q = new URLSearchParams({ center: String(Math.max(0, Math.round(center))) });
+    if (window != null) q.set('window', String(window));
+    return client.post<{ started: boolean; reason?: string; center?: number; window?: number }>(
+      `/media/${id}/screenshots/prefetch?${q.toString()}`
+    );
+  }
 };

@@ -12,7 +12,6 @@ Performance:
 - Batch updates for existing media (no N+1 queries)
 """
 import asyncio
-import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
@@ -166,22 +165,6 @@ def classify_missing(
             restored_ids.append(info["id"])
 
     return missing_ids, restored_ids
-
-
-def compute_file_hash(file_path: str, chunk_size: int = 65536) -> str:
-    """Compute a 64KB-prefix hash for deduplication (fast, not full-file).
-
-    Reads only the first 64KB of the file — sufficient for uniqueness
-    while being fast even for multi-GB files.
-    Uses blake2b (non-crypto, collision-resistant, faster than MD5).
-    """
-    hasher = hashlib.blake2b(digest_size=16)
-    try:
-        with open(file_path, "rb") as f:
-            hasher.update(f.read(chunk_size))
-    except (OSError, PermissionError):
-        return ""
-    return hasher.hexdigest()
 
 
 def validate_root_path(root_path: str) -> Path:

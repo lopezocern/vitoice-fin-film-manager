@@ -24,13 +24,6 @@ export const typeNameDisplay: Record<string, string> = {
 
 export const displayTypeName = (name: string): string => typeNameDisplay[name] ?? name;
 
-/** 标签颜色调色板（含 null = 清除颜色，使用类型默认色） */
-export const TAG_PALETTE = [
-  '#635bff', '#f59e0b', '#34c759', '#ff3b30', '#ff2d55',
-  '#af52de', '#5ac8fa', '#ff9500', '#8e8e93', '#00c7be',
-  null,
-];
-
 /** 标签类型颜色调色板 */
 export const TYPE_PALETTE = [
   '#635bff', '#f59e0b', '#34c759', '#ff3b30', '#ff2d55',

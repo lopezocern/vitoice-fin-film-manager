@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -10,6 +10,14 @@ from app.models.media import Media, VideoTag
 from app.models.library import MediaLibrary
 from app.models.task import Task
 from app.models.enums import MediaType, TaskStatus
+from app.services.media_query import (
+    issue_scope,
+    pred_missing,
+    pred_metadata_missing,
+    pred_no_poster,
+    pred_problem,
+    pred_untagged,
+)
 from app.services.restricted import get_restricted_library_ids
 from app.schemas.common import ORMBaseModel
 
@@ -38,6 +46,12 @@ class StatsSummary(ORMBaseModel):
     missing_count: int = 0  # file_missing=true
     no_poster_count: int = 0  # no poster and no thumbnail (episodes excluded)
     no_metadata_count: int = 0  # no scrape_data (episodes excluded)
+    # --- 管理页 Saved View 徽标 ---
+    # Union of missing / no_poster / metadata_missing — an item that is both
+    # poster-less and metadata-less counts once (a naive sum double counts).
+    problem_count: int = 0
+    untagged_count: int = 0  # no tags at all, within issue scope
+    ignored_count: int = 0  # user explicitly opted this item out of scraping
     # --- 媒体管理来源统计（侧边栏来源区）---
     local_count: int = 0  # 有本地文件（local/both 且未缺失）
     network_count: int = 0  # 网络媒体（network/both）
@@ -126,44 +140,36 @@ async def get_stats_summary(db: AsyncSession = Depends(get_db)):
     deleted_count = result.scalar() or 0
 
     # --- 二期升级：问题导向计数 ---
-    # Episode rows (series_id set) inherit poster/metadata from the parent
-    # series, so they must not be reported as incomplete individually.
-    # 纯网络媒体（NETWORK）无本地文件/海报是常态，不计入问题计数。
-    base_issue = (
-        Media.is_deleted == False,  # noqa: E712
-        Media.series_id.is_(None),
-        Media.media_type != MediaType.NETWORK,
-    )
-    missing_query = select(func.count(Media.id)).where(
-        *base_issue, Media.file_missing == True  # noqa: E712
-    )
-    if restricted_ids:
-        missing_query = missing_query.where(~Media.library_id.in_(restricted_ids))
-    result = await db.execute(missing_query)
-    missing_count = result.scalar() or 0
+    # 口径与谓词统一走 services/media_query —— 同一组条件同时服务 /media 的
+    # has_poster / metadata_status / untagged / problem 过滤，保证「侧边栏徽标」
+    # 恒等于「点进去的列表 total」。剧集继承父系列的海报/元数据，纯网络媒体
+    # 无本地文件是常态，二者都不算问题（见 issue_scope()）。
+    scope = issue_scope()
 
-    no_poster_query = select(func.count(Media.id)).where(
-        *base_issue,
-        Media.poster_path.is_(None),
-        Media.thumbnail_path.is_(None),
-    )
-    if restricted_ids:
-        no_poster_query = no_poster_query.where(~Media.library_id.in_(restricted_ids))
-    result = await db.execute(no_poster_query)
-    no_poster_count = result.scalar() or 0
+    async def count_where(*conditions) -> int:
+        q = select(func.count(Media.id)).where(*conditions)
+        if restricted_ids:
+            q = q.where(~Media.library_id.in_(restricted_ids))
+        return int((await db.execute(q)).scalar() or 0)
+
+    missing_count = await count_where(*scope, pred_missing())
+    no_poster_count = await count_where(*scope, pred_no_poster())
+    untagged_count = await count_where(*scope, pred_untagged())
+    # 并集，不是求和：同时缺海报又缺元数据只算一次。
+    problem_count = await count_where(*scope, pred_problem())
 
     # 口径与元数据工作台「待处理」一致：排除已忽略项，缺封面或缺元数据均计入。
     # 不排除网络媒体（NETWORK）——工作台待处理列表同样包含网络媒体。
-    no_metadata_query = select(func.count(Media.id)).where(
+    no_metadata_count = await count_where(
         Media.is_deleted == False,  # noqa: E712
         Media.series_id.is_(None),
-        Media.metadata_ignored == False,  # noqa: E712
-        or_(Media.poster_path.is_(None), Media.scrape_data.is_(None)),
+        pred_metadata_missing(),
     )
-    if restricted_ids:
-        no_metadata_query = no_metadata_query.where(~Media.library_id.in_(restricted_ids))
-    result = await db.execute(no_metadata_query)
-    no_metadata_count = result.scalar() or 0
+    # 用户显式放弃刮削的条目（元数据页的「已忽略」视图）。
+    ignored_count = await count_where(
+        Media.is_deleted == False,  # noqa: E712
+        Media.metadata_ignored == True,  # noqa: E712
+    )
 
     # --- 媒体管理来源统计（侧边栏来源区）---
     # 本地文件：media_type 为 local/both 且 file_missing=false
@@ -262,6 +268,9 @@ async def get_stats_summary(db: AsyncSession = Depends(get_db)):
             missing_count=missing_count,
             no_poster_count=no_poster_count,
             no_metadata_count=no_metadata_count,
+            problem_count=problem_count,
+            untagged_count=untagged_count,
+            ignored_count=ignored_count,
             local_count=local_count,
             network_count=network_count,
         ),

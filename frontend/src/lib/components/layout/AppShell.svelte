@@ -98,14 +98,14 @@
 <!-- 窗口 resize 手柄（仅 Tauri 桌面端，decorations:false 时提供窗口边缘调整） -->
 {#if isTauri}
   <div class="resize-handles" aria-hidden="true">
-    <div class="rh rh-n" onmousedown={() => startResize('North')}></div>
-    <div class="rh rh-s" onmousedown={() => startResize('South')}></div>
-    <div class="rh rh-w" onmousedown={() => startResize('West')}></div>
-    <div class="rh rh-e" onmousedown={() => startResize('East')}></div>
-    <div class="rh rh-nw" onmousedown={() => startResize('NorthWest')}></div>
-    <div class="rh rh-ne" onmousedown={() => startResize('NorthEast')}></div>
-    <div class="rh rh-sw" onmousedown={() => startResize('SouthWest')}></div>
-    <div class="rh rh-se" onmousedown={() => startResize('SouthEast')}></div>
+    <div class="rh rh-n" role="presentation" onmousedown={() => startResize('North')}></div>
+    <div class="rh rh-s" role="presentation" onmousedown={() => startResize('South')}></div>
+    <div class="rh rh-w" role="presentation" onmousedown={() => startResize('West')}></div>
+    <div class="rh rh-e" role="presentation" onmousedown={() => startResize('East')}></div>
+    <div class="rh rh-nw" role="presentation" onmousedown={() => startResize('NorthWest')}></div>
+    <div class="rh rh-ne" role="presentation" onmousedown={() => startResize('NorthEast')}></div>
+    <div class="rh rh-sw" role="presentation" onmousedown={() => startResize('SouthWest')}></div>
+    <div class="rh rh-se" role="presentation" onmousedown={() => startResize('SouthEast')}></div>
   </div>
 {/if}
 

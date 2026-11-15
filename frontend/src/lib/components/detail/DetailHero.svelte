@@ -29,7 +29,11 @@
     oneditcover,
     showRefreshSource = false,
     onrefreshsource,
-    backdropUrl = ''
+    backdropUrl = '',
+    onprev,
+    onnext,
+    prevTitle = '',
+    nextTitle = ''
   }: {
     media: Media;
     displayTitle: string;
@@ -54,6 +58,11 @@
     showRefreshSource?: boolean;
     onrefreshsource?: () => void;
     backdropUrl?: string;
+    /** 浏览队列中的上一个内容（同列表顺序），未提供时左侧箭头禁用 */
+    onprev?: () => void;
+    onnext?: () => void;
+    prevTitle?: string;
+    nextTitle?: string;
   } = $props();
 
   // 海报点击放大（lightbox）
@@ -221,6 +230,28 @@
       </div>
     </div>
   </div>
+
+  <!-- 快速查看上一个 / 下一个内容（沿用媒体库当前列表顺序） -->
+  {#if onprev || onnext}
+    <button
+      class="hero-nav prev"
+      disabled={!onprev}
+      onclick={() => onprev?.()}
+      title={prevTitle ? `上一个：${prevTitle}` : '上一个'}
+      aria-label={prevTitle ? `上一个：${prevTitle}` : '上一个'}
+    >
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6" /></svg>
+    </button>
+    <button
+      class="hero-nav next"
+      disabled={!onnext}
+      onclick={() => onnext?.()}
+      title={nextTitle ? `下一个：${nextTitle}` : '下一个'}
+      aria-label={nextTitle ? `下一个：${nextTitle}` : '下一个'}
+    >
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+    </button>
+  {/if}
 </div>
 
 <!-- 海报放大遮罩 -->
@@ -300,6 +331,42 @@
     margin: 0 auto;
   }
 
+  /* ---- 上一个 / 下一个 快速切换箭头（贴在 Hero 左右边缘） ---- */
+  .hero-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 3;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 50%;
+    background: rgba(12, 14, 16, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: #f4f4f7;
+    cursor: pointer;
+    transition: background 160ms ease, border-color 160ms ease, opacity 160ms ease, transform 160ms ease;
+  }
+
+  /* 贴内容区边缘（hero-inner 最宽 1280px 居中），超宽屏下箭头不会飘到屏幕两端 */
+  .hero-nav.prev { left: max(12px, calc((100% - 1280px) / 2 + 12px)); }
+  .hero-nav.next { right: max(12px, calc((100% - 1280px) / 2 + 12px)); }
+
+  .hero-nav:hover:not(:disabled) {
+    background: var(--accent);
+    border-color: var(--accent);
+    transform: translateY(-50%) scale(1.06);
+  }
+
+  .hero-nav:disabled {
+    opacity: 0.26;
+    cursor: not-allowed;
+  }
+
   .poster-col {
     width: 260px;
     flex-shrink: 0;
@@ -363,6 +430,7 @@
     max-width: 860px;
     display: -webkit-box;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }

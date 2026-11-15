@@ -162,8 +162,17 @@
 </script>
 
 {#if open && media}
-  <div class="modal-overlay" onclick={() => !saving && !uploading && (open = false)}>
-    <div class="modal-card" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget && !saving && !uploading) open = false;
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape' && !saving && !uploading) open = false;
+    }}
+  >
+    <div class="modal-card" role="dialog" aria-modal="true" aria-label="编辑媒体" tabindex="-1">
       <div class="modal-header">
         <h2>编辑媒体</h2>
         <button class="close-btn" onclick={() => (open = false)} disabled={saving || uploading}>✕</button>

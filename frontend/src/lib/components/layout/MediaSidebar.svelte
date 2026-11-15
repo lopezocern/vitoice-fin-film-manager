@@ -316,6 +316,7 @@
           class="item"
           class:active={isActive('tag', tag.id)}
           data-tip={tag.name}
+          aria-label={tag.name}
           onclick={() => navigate({ type: 'tag', value: tag.id, label: tag.name })}
         >
           <span class="tag-dot" style={safeColor(tag.color) ? `background:${safeColor(tag.color)}` : ''}></span>

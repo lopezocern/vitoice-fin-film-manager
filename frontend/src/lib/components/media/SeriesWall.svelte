@@ -38,7 +38,8 @@
 </script>
 
 {#snippet seriesCard(s: Series)}
-    <button class="series-card" data-id={s.id} onclick={() => onSelect?.(s)}>
+    <!-- data-id 带 series- 前缀：与 UnifiedWall 一致，媒体页保存的锚点才能命中 -->
+    <button class="series-card" data-id={`series-${s.id}`} onclick={() => onSelect?.(s)}>
       <div class="card-thumb">
         {#if s.poster_path}
           <img src={seriesApi.posterUrl(s.id)} alt={s.title} loading="lazy" />
@@ -58,12 +59,16 @@
           </div>
         {/if}
       </div>
-      <div class="card-info">
+      <div class="card-info" title="查看详情">
         <div class="card-title" title={s.title}>{s.title}</div>
         <div class="card-meta">
           {#if s.year}<span class="muted">{s.year}</span>{/if}
           {#if s.total_seasons}<span class="muted">{s.total_seasons} 季</span>{/if}
         </div>
+        <span class="detail-hint" aria-hidden="true">
+          查看详情
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+        </span>
       </div>
     </button>
 {/snippet}
@@ -179,7 +184,14 @@
   }
 
   .card-info {
+    position: relative;
     padding: 8px 10px 10px;
+    cursor: pointer;
+    transition: background 160ms ease;
+  }
+
+  .card-info:hover {
+    background: var(--bg-soft);
   }
 
   .card-title {
@@ -193,6 +205,11 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     min-height: 2.7em;
+    transition: color 160ms ease;
+  }
+
+  .card-info:hover .card-title {
+    color: var(--accent);
   }
 
   .card-meta {
@@ -201,6 +218,43 @@
     gap: 8px;
     margin-top: 5px;
     font-size: 11.5px;
+    transition: opacity 140ms ease;
+  }
+
+  .card-info:hover .card-meta {
+    opacity: 0;
+  }
+
+  /* 信息区 hover 提示：meta 淡出，'查看详情 ›' 滑入 + 箭头持续微动
+     （与 PosterWall/观看中心一致） */
+  .detail-hint {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 650;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity 160ms ease, transform 160ms ease;
+    pointer-events: none;
+  }
+
+  .card-info:hover .detail-hint {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .detail-hint svg {
+    animation: hint-nudge 1.1s ease-in-out infinite;
+  }
+
+  @keyframes hint-nudge {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(3px); }
   }
 
   .muted {

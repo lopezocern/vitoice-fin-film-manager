@@ -77,6 +77,12 @@ class LibraryResponse(BaseModel):
     created_at: str = ""
     updated_at: str = ""
     media_count: int = 0
+    # Health numbers for the manage page's resource-library status view.
+    # NOTE: `media_count` (and therefore the two below, which share its WHERE)
+    # still includes soft-deleted rows — pre-existing behaviour, deliberately
+    # left alone here so existing library badges do not change.
+    missing_count: int = 0
+    total_size: int = 0
 
     model_config = {"from_attributes": True}
 

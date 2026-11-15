@@ -840,17 +840,29 @@
       {:else}
         <div class="card-grid">
           {#each displayTags as tag (tag.id)}
-            <button
+            <!-- 用 div+role 而非 <button>：卡片内部有重命名的输入框与按钮，
+                 嵌套在 <button> 里是非法 HTML（会触发 hydration 警告） -->
+            <div
               class="tag-card"
               class:selected={selectedTagId === tag.id || (multiSelectMode && selectedTagIds.has(tag.id))}
               class:renaming={renamingId === tag.id}
               class:multi={multiSelectMode}
+              role="button"
+              tabindex="0"
               onclick={() => {
                 if (renamingId !== null) return;
                 if (multiSelectMode) {
                   toggleTagSelection(tag.id);
                 } else {
                   selectTag(tag.id);
+                }
+              }}
+              onkeydown={(e) => {
+                if (renamingId !== null) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  if (multiSelectMode) toggleTagSelection(tag.id);
+                  else selectTag(tag.id);
                 }
               }}
               oncontextmenu={(e) => onTagContextMenu(e, tag)}
@@ -880,16 +892,21 @@
                     if (e.key === 'Escape') { e.stopPropagation(); cancelRename(); }
                   }}
                 />
-                <div class="rename-actions" onclick={(e) => e.stopPropagation()}>
-                  <button class="icon-btn" onclick={() => saveRename(tag)}>✓</button>
-                  <button class="icon-btn" onclick={cancelRename}>✕</button>
+                <div
+                  class="rename-actions"
+                  role="presentation"
+                  onclick={(e) => e.stopPropagation()}
+                  onkeydown={(e) => e.stopPropagation()}
+                >
+                  <button class="icon-btn" aria-label="保存重命名" title="保存" onclick={() => saveRename(tag)}>✓</button>
+                  <button class="icon-btn" aria-label="取消重命名" title="取消" onclick={cancelRename}>✕</button>
                 </div>
               {:else}
                 <span class="card-color-dot" style={`background:${tag.color ?? selectedType?.color ?? '#8e8e93'}`}></span>
                 <span class="card-name">{tag.name}</span>
                 <span class="card-subtitle">{tagMediaCounts[tag.id] ?? 0} 个媒体 · {selectedType?.is_builtin ? '系统标签' : '用户标签'}</span>
               {/if}
-            </button>
+            </div>
           {/each}
         </div>
       {/if}
@@ -995,7 +1012,11 @@
   <div
     class="ctx-menu"
     style={`left:${tagContextMenu.x}px;top:${tagContextMenu.y}px`}
+    role="menu"
+    tabindex="-1"
+    aria-label="标签操作"
     onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
   >
     <button class="ctx-item" onclick={contextEditTag}>编辑标签</button>
     <button class="ctx-item" onclick={contextRenameTag}>重命名</button>
@@ -1009,6 +1030,8 @@
             class="ctx-color"
             class:active={tagContextMenu.tag.color === c}
             style={`background:${c}`}
+            aria-label={`颜色 ${c}`}
+            title={`颜色 ${c}`}
             onclick={() => contextChangeTagColor(c)}
           ></button>
         {/each}
@@ -1021,8 +1044,17 @@
 
 <!-- 标签编辑弹窗 -->
 {#if editTagOpen}
-  <div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) cancelEditTag(); }}>
-    <div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') cancelEditTag(); }}>
+  <div
+    class="modal-backdrop"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) cancelEditTag();
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') cancelEditTag();
+    }}
+  >
+    <div class="edit-modal" role="dialog" aria-modal="true" aria-label="编辑标签" tabindex="-1">
       <h2 class="edit-modal-title">编辑标签</h2>
       <div class="edit-field">
         <label class="edit-label" for="edit-tag-name">名称</label>
@@ -1042,6 +1074,8 @@
               class="dot-swatch"
               class:active={editTagColor === c}
               style={`background:${c}`}
+              aria-label={`颜色 ${c}`}
+              title={`颜色 ${c}`}
               onclick={() => (editTagColor = c)}
             ></button>
           {/each}
@@ -1049,6 +1083,7 @@
             class="dot-swatch none-swatch"
             class:active={editTagColor === null}
             onclick={() => (editTagColor = null)}
+            aria-label="无颜色"
             title="无颜色"
           ></button>
         </div>
@@ -1085,8 +1120,17 @@
 
 <!-- 批量移动类型 -->
 {#if batchMoveOpen}
-  <div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) cancelBatchMove(); }}>
-    <div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') cancelBatchMove(); }}>
+  <div
+    class="modal-backdrop"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) cancelBatchMove();
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') cancelBatchMove();
+    }}
+  >
+    <div class="edit-modal" role="dialog" aria-modal="true" aria-label="批量移动到类型" tabindex="-1">
       <h2 class="edit-modal-title">批量移动到类型</h2>
       <div class="edit-field">
         <span class="edit-label">选择目标类型（已选 {selectedCount} 项）</span>
@@ -1122,8 +1166,17 @@
 
 <!-- 批量修改颜色 -->
 {#if batchColorOpen}
-  <div class="modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) cancelBatchColor(); }}>
-    <div class="edit-modal" onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') cancelBatchColor(); }}>
+  <div
+    class="modal-backdrop"
+    role="presentation"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) cancelBatchColor();
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') cancelBatchColor();
+    }}
+  >
+    <div class="edit-modal" role="dialog" aria-modal="true" aria-label="批量修改颜色" tabindex="-1">
       <h2 class="edit-modal-title">批量修改颜色</h2>
       <div class="edit-field">
         <span class="edit-label">选择颜色（已选 {selectedCount} 项）</span>
@@ -1134,6 +1187,7 @@
               style={`background:${c}`}
               onclick={() => confirmBatchColor(c)}
               disabled={batchLoading}
+              aria-label={`颜色 ${c}`}
               title={batchLoading ? '处理中…' : '应用此颜色'}
             ></button>
           {/each}

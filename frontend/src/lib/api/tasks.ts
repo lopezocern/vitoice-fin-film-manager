@@ -87,7 +87,5 @@ export const tasksApi = {
   // actually sends as `subtitle`/`error_msg`.
   cancel: async (id: number): Promise<Task> =>
     normalizeTask(await client.post<Partial<TaskPayload>>(`/tasks/${id}/cancel`)),
-  retry: async (id: number): Promise<Task> =>
-    normalizeTask(await client.post<Partial<TaskPayload>>(`/tasks/${id}/retry`)),
   clear: () => client.delete<void>('/tasks/completed')
 };

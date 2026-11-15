@@ -8,6 +8,7 @@
   import { getProgress } from './types';
   import { settingsStore } from '$lib/stores/settings.svelte';
   import { librariesStore } from '$lib/stores/libraries.svelte';
+  import { cardRatios } from '$lib/stores/cardRatios.svelte';
   import ContactSheetLightbox from './ContactSheetLightbox.svelte';
 
   /** A unified item is either a Series (aggregated TV show) or a standalone Media. */
@@ -18,7 +19,8 @@
   // ---- 图片比例分类（按实际宽高比统一展示，避免高低不齐）----
   // 宽图 → 3/2 横卡、竖图 → 2/3 竖卡、方图 → 1/1 方卡。
   // 无海报只有截图时也按截图自然比例归类（视频截图多为 16:9 横屏）。
-  let posterRatio = $state<Record<string, string>>({});
+  // 比例表跨导航持久化（见 cardRatios.svelte.ts）：返回媒体库时布局与离开时
+  // 一致，锚点滚动恢复才能精确落点；也因此不再随 items 变化清空。
   function onImageLoad(e: Event, m: Media): void {
     const img = e.currentTarget as HTMLImageElement;
     const r = img.naturalWidth / img.naturalHeight;
@@ -26,29 +28,36 @@
     let ar = '2 / 3';
     if (r > 1.05) ar = '4 / 3';
     else if (r >= 0.95) ar = '1 / 1';
-    posterRatio[String(m.id)] = ar;
+    cardRatios[String(m.id)] = ar;
   }
-
-  // 清理：items 变化时重置 posterRatio，防止内存泄漏（旧图片 id 累积）
-  $effect(() => {
-    // 读取 items 以建立依赖
-    const _ = items.length;
-    posterRatio = {};
-  });
 
   let {
     items,
     onSelectSeries,
     onSelectMedia,
+    onplay,
     mode = 'mixed',
     density = 180,
   }: {
     items: UnifiedItem[];
     onSelectSeries?: (s: Series) => void;
     onSelectMedia?: (m: Media) => void;
+    /** 点击封面直接播放（进播放器）；未提供时封面回落为进详情 */
+    onplay?: (m: Media) => void;
     mode?: 'mixed' | 'poster' | 'list' | 'timeline';
     density?: number;
   } = $props();
+
+  /** 封面是否走播放：有 onplay 且非图片（与 PosterWall/观看中心同一契约）。 */
+  function canPlay(m: Media): boolean {
+    return !!onplay && m.type !== 'image';
+  }
+
+  /** 封面点击：能播则播，否则进详情。 */
+  function playMedia(m: Media): void {
+    if (canPlay(m)) onplay?.(m);
+    else onSelectMedia?.(m);
+  }
 
   const restrictedLibIds = $derived(
     new Set(librariesStore.libraries.filter((l) => l.is_restricted).map((l) => String(l.id)))
@@ -93,7 +102,8 @@
 {#snippet unifiedCard(item: UnifiedItem)}
   {#if item.kind === 'series'}
     {@const s = item.data}
-    <button class="card series-card" onclick={() => onSelectSeries?.(s)}>
+    <!-- data-id 带 series- 前缀：与媒体 id 分命名空间，避免锚点/滚动恢复时串号 -->
+    <button class="card series-card" data-id={`series-${s.id}`} onclick={() => onSelectSeries?.(s)}>
       <div class="card-thumb">
         {#if s.poster_path}
           <img src={seriesApi.posterUrl(s.id)} alt={s.title} loading="lazy" />
@@ -114,12 +124,16 @@
           </div>
         {/if}
       </div>
-      <div class="card-info">
+      <div class="card-info" title="查看详情">
         <div class="card-title" title={s.title}>{s.title}</div>
         <div class="card-meta">
           {#if s.year}<span class="muted">{s.year}</span>{/if}
           {#if s.total_seasons}<span class="muted">{s.total_seasons} 季</span>{/if}
         </div>
+        <span class="detail-hint" aria-hidden="true">
+          查看详情
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+        </span>
       </div>
     </button>
   {:else}
@@ -129,21 +143,31 @@
     {@const av = isAvMedia(m)}
     {@const usesSeriesCover = m.series_id != null}
     {@const hasImage = usesSeriesCover || !!m.poster || !!m.thumbnail}
-    {@const ratioCls = hasImage ? posterRatio[String(m.id)] : undefined}
+    {@const ratioCls = hasImage ? cardRatios[String(m.id)] : undefined}
     {@const defaultRatio = usesSeriesCover || m.poster ? (av && !usesSeriesCover ? '4 / 3' : '2 / 3') : '4 / 3'}
     {@const ratioStr = mode === 'poster' ? '2 / 3' : (ratioCls ?? defaultRatio)}
     {@const isWide = !usesSeriesCover && (ratioCls === '4 / 3' || (!ratioCls && !m.poster && !!m.thumbnail))}
     <button
       class="card media-card"
+      data-id={m.id}
       class:av-poster={!hasImage && av && mode !== 'poster'}
       class:wide={isWide && mode !== 'poster'}
-      onclick={() => onSelectMedia?.(m)}
     >
       <div
         class="card-thumb"
         class:av-poster={av && mode !== 'poster'}
         class:has-poster={!!m.poster}
         style:aspect-ratio={hasImage ? ratioStr : undefined}
+        onclick={() => playMedia(m)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            playMedia(m);
+          }
+        }}
+        role="button"
+        tabindex="-1"
+        title={canPlay(m) ? '点击封面播放' : '查看详情'}
       >
         {#if usesSeriesCover}
           <img src={seriesApi.posterUrl(m.series_id!)} alt={m.series_title ?? m.title ?? m.filename} loading="lazy" onerror={(e) => seriesCoverFallback(e, m)} onload={(e) => onImageLoad(e, m)} />
@@ -166,6 +190,13 @@
           role="button"
           tabindex="-1"
           onclick={(e) => { e.stopPropagation(); openContactSheet(m); }}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              openContactSheet(m);
+            }
+          }}
         >
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">
             <rect x="3" y="3" width="8" height="8" rx="1" />
@@ -190,13 +221,30 @@
         {#if p > 0}
           <div class="progress"><div class="progress-fill" style="width:{p}%"></div></div>
         {/if}
+        {#if canPlay(m)}
+          <span class="play-hint" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
+          </span>
+        {/if}
         {#if shouldMask(m.library_id)}
           <div class="content-mask" title="限制内容 — 点击查看">
             <span class="mask-icon">🔞</span>
           </div>
         {/if}
       </div>
-      <div class="card-info">
+      <div
+        class="card-info"
+        onclick={() => onSelectMedia?.(m)}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelectMedia?.(m);
+          }
+        }}
+        role="button"
+        tabindex="-1"
+        title="查看详情"
+      >
         <div class="card-title" title={m.title ?? m.filename}>{m.title ?? m.filename}</div>
         <div class="card-meta">
           {#if m.year}<span class="muted">{m.year}</span>{/if}
@@ -204,6 +252,10 @@
             <span class="rating">{'★'.repeat(filled)}<span class="rating-dim">{'★'.repeat(5 - filled)}</span></span>
           {/if}
         </div>
+        <span class="detail-hint" aria-hidden="true">
+          查看详情
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+        </span>
       </div>
     </button>
   {/if}
@@ -440,7 +492,14 @@
   }
 
   .card-info {
+    position: relative;
     padding: 8px 10px 10px;
+    cursor: pointer;
+    transition: background 160ms ease;
+  }
+
+  .card-info:hover {
+    background: var(--bg-soft);
   }
 
   .card-title {
@@ -454,6 +513,11 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     min-height: 2.7em;
+    transition: color 160ms ease;
+  }
+
+  .card-info:hover .card-title {
+    color: var(--accent);
   }
 
   .card-meta {
@@ -462,6 +526,60 @@
     gap: 8px;
     margin-top: 5px;
     font-size: 11.5px;
+    transition: opacity 140ms ease;
+  }
+
+  .card-info:hover .card-meta {
+    opacity: 0;
+  }
+
+  /* 封面 hover 播放提示 + 信息区 hover 详情提示（与 PosterWall/观看中心一致） */
+  .play-hint {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    opacity: 0;
+    transition: opacity 160ms ease;
+    pointer-events: none;
+  }
+
+  .card-thumb:hover .play-hint {
+    opacity: 1;
+  }
+
+  .detail-hint {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 650;
+    opacity: 0;
+    transform: translateX(-6px);
+    transition: opacity 160ms ease, transform 160ms ease;
+    pointer-events: none;
+  }
+
+  .card-info:hover .detail-hint {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .detail-hint svg {
+    animation: hint-nudge 1.1s ease-in-out infinite;
+  }
+
+  @keyframes hint-nudge {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(3px); }
   }
 
   .rating {

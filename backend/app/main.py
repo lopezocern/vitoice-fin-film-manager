@@ -24,6 +24,15 @@ async def lifespan(app: FastAPI):
     # Startup: create tables if they don't exist (Alembic handles migrations)
     await init_db()
 
+    # Sweep contact-sheet frame leftovers from a previous crash / forced kill.
+    # Age-guarded (1h), so sheets still being generated are never touched.
+    from app.services.contact_sheet import cleanup_orphan_frames
+
+    try:
+        cleanup_orphan_frames()
+    except Exception:  # noqa: BLE001 — cache cleanup must not block startup
+        logger.warning("Orphan contact-sheet frame cleanup failed", exc_info=True)
+
     # Start the task manager
     from app.tasks.manager import task_manager
     await task_manager.start()

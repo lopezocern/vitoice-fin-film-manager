@@ -4,8 +4,8 @@ Works with any OpenAI-compatible provider (OpenAI, DeepSeek, Kimi, etc.)
 — just configure the base URL, API token, and model name in settings.
 
 Config resolution order (highest priority first):
-1. Explicit overrides passed into call_ai_api() (used by the "test connection"
-   endpoint so it can validate exactly what the user typed).
+1. Explicit overrides passed into call_ai_api_checked() (used by the "test
+   connection" endpoint so it can validate exactly what the user typed).
 2. Database `settings` table (what the user saved in the UI).
 3. Environment-based app.config.settings defaults.
 """
@@ -138,30 +138,6 @@ TAG_PROMPT = """你是一个视频标签分析助手。根据以下视频信息�
 - 只返回 JSON，不要其他文字"""
 
 
-async def call_ai_api(
-    prompt: str,
-    *,
-    base_url: str | None = None,
-    api_key: str | None = None,
-    model: str | None = None,
-) -> str | None:
-    """Call the configured AI provider.
-
-    When no overrides are supplied, configuration is loaded from the database
-    settings table (falling back to env defaults). Returns the text response,
-    or None on any failure (used by the tagging pipeline, which is fault
-    tolerant). For error details, use `call_ai_api_checked`.
-    """
-    try:
-        if base_url is None and api_key is None and model is None:
-            cfg = await _load_ai_config_from_db()
-        else:
-            cfg = resolve_ai_config(base_url=base_url, api_key=api_key, model=model)
-        return await _chat_completion(cfg, prompt)
-    except (AIConfigError, httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError):
-        return None
-
-
 async def call_ai_api_checked(
     prompt: str,
     *,
@@ -169,9 +145,10 @@ async def call_ai_api_checked(
     api_key: str | None = None,
     model: str | None = None,
 ) -> tuple[bool, str, str | None]:
-    """Like call_ai_api but returns (ok, message, text) with real error detail.
+    """Call the configured AI provider and report failures instead of raising.
 
-    Used by the "test connection" endpoint so the UI can show why it failed.
+    Returns ``(ok, message, text)``. Used by the "test connection" endpoint so
+    the UI can show exactly why a call failed.
     """
     try:
         cfg = resolve_ai_config(base_url=base_url, api_key=api_key, model=model)
@@ -234,8 +211,7 @@ async def tag_media_with_ai(media_id: int) -> list[dict]:
         )
 
     # Call AI — use _load_ai_config_from_db + _chat_completion directly so
-    # config/network errors propagate to the caller (unlike call_ai_api
-    # which swallows them and returns None).
+    # config/network errors propagate to the caller instead of being swallowed.
     cfg = await _load_ai_config_from_db()
     if not cfg.api_key:
         raise AIConfigError("未配置 AI API Token（请在设置 → AI 中填写并保存）")
@@ -325,6 +301,8 @@ async def tag_media_batch_with_ai(
 ) -> int:
     """AI-tag multiple media files.
 
+    When ``unverified_only`` is true, media that already have AI-generated
+    tags are skipped so repeat runs do not waste provider calls on them.
     Called by TaskManager as a task worker.
     """
     from app.tasks.manager import task_manager
@@ -337,6 +315,12 @@ async def tag_media_batch_with_ai(
         )
         if library_id is not None:
             query = query.where(Media.library_id == library_id)
+        if unverified_only:
+            query = query.where(
+                Media.id.not_in(
+                    select(VideoTag.media_id).where(VideoTag.source == "ai")
+                )
+            )
 
         result = await session.execute(query)
         rows = result.fetchall()
@@ -355,45 +339,6 @@ async def tag_media_batch_with_ai(
             tagged_count += 1
 
     return tagged_count
-
-
-async def suggest_tags_for_media(media_id: int) -> list[str]:
-    """Return AI-suggested tag names for a media item without persisting them.
-
-    Used by the GET /tags/suggest endpoint. Returns an empty list when no AI
-    key is configured or the provider returns nothing. Does NOT write VideoTag
-    rows — it is purely advisory.
-    """
-    async with async_session() as session:
-        media = await session.get(Media, media_id)
-        if not media:
-            return []
-
-        prompt = TAG_PROMPT.format(
-            title=media.title,
-            filename=media.file_name,
-            duration=int(media.duration or 0),
-            width=media.width or 0,
-            height=media.height or 0,
-        )
-
-    response_text = await call_ai_api(prompt)
-    if not response_text:
-        return []
-
-    try:
-        text = response_text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
-
-        data = json.loads(text)
-        suggestions = data.get("tags", [])
-        return [str(t.get("name", "")).strip() for t in suggestions if t.get("name")]
-    except (json.JSONDecodeError, KeyError, AttributeError):
-        return []
 
 
 # AI prompt template — clean title + year extraction for rescraping.
@@ -442,7 +387,7 @@ async def suggest_rescrape_query(media_id: int) -> tuple[str | None, int | None]
         )
 
     # Use the DB-loaded config + checked completion so config/network errors
-    # propagate to the endpoint (unlike call_ai_api which swallows them).
+    # propagate to the endpoint.
     cfg = await _load_ai_config_from_db()
     if not cfg.api_key:
         raise AIConfigError("未配置 AI API Token（请在设置 → AI 中填写并保存）")

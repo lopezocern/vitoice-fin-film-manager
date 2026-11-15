@@ -3,15 +3,13 @@
 Extracted from media.py for API physical isolation.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.services.proxy import get_proxy_url
 from app.services.ssrf import validate_http_url
-from app.services.restricted import get_restricted_library_ids
 from app.services.media_access import get_accessible_media
-from app.services.assets import cleanup_asset_files
 from app.models.enums import MediaType, UrlRole
 from app.models.media import Media, MediaUrl
 from app.schemas.media import MediaUrlCreate, MediaUrlResponse, MediaUrlUpdate
@@ -151,6 +149,19 @@ async def check_url_validity(
         validate_http_url(url.url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    # DoodStream stores its *embed page* (the real mp4 is minted on demand at
+    # playback). A HEAD against the embed host hits Cloudflare's TLS gate (403)
+    # and would wrongly flag a perfectly playable source as expired — skip it.
+    from app.services.adult_source import is_dood_embed
+
+    if (url.platform or "").strip().lower() == "dood" or is_dood_embed(url.url):
+        return {
+            "url_id": url.id,
+            "is_expired": bool(url.is_expired),
+            "status_code": None,
+            "checked": False,
+        }
 
     try:
         async with httpx.AsyncClient(
