@@ -1,11 +1,13 @@
 <script lang="ts">
   // 全屏播放器页面（vitoice Phase 3.0 核心体验）
   // YouTube 风格手势 + 完整快捷键体系 + 整理带。
-  // 说明：播放状态以 <video> 元素为唯一真相源，绑定到本地 $state；
+  // 说明：播放状态真相源在 PlayerKernel（桌面端 = mpv 原生内核，浏览器 = <video> 回退），
+  //       页面上的 paused/currentTime/... 只是内核状态的镜像（见下方同步 effect）；
   //       全局项（音量/静音/字幕偏好）走 localStorage 持久化，per-media 速率/进度走后端。
   //       player store 文件按约定未修改，本页自包含不依赖其字段。
   import { onMount, onDestroy, untrack } from 'svelte';
   import { goto } from '$app/navigation';
+  import { invoke } from '@tauri-apps/api/core';
   // Type-only: hls.js is loaded from CDN at runtime by loadHlsJs(); the
   // devDependency exists purely to type the instance and its events.
   import type Hls from 'hls.js';
@@ -15,11 +17,15 @@
   import { formatTime } from '$lib/utils/format';
   import { toggleWorkAreaMaximize, isWorkAreaMaximized, sizeLooksMaximized, type WindowLike } from '$lib/utils/tauri-window';
   import { realQueryParam, urlWithParam } from '$lib/utils/urlState';
+  import { liveQueryParam } from '$lib/stores/urlState.svelte';
+  import { queueNeighbors, type QueueItem } from '$lib/stores/mediaQueue.svelte';
   import { createAsyncCleanup } from '$lib/utils/asyncCleanup';
   import { classifyNetworkUrl, loadHlsJs, openExternalUrl, isAdultAggregatorUrl, isAdultNetworkMedia, extractFancode } from '$lib/utils/network-media';
   import { adultNetworkApi } from '$lib/api/networkSources';
   import { settingsStore } from '$lib/stores/settings.svelte';
   import { librariesStore } from '$lib/stores/libraries.svelte';
+  import { PlayerKernel } from '$lib/player/kernel.svelte';
+  import { mpvWriteSubtitle, resolveWindowLabel } from '$lib/player/mpv';
   import ProgressBar from '$lib/components/player/ProgressBar.svelte';
   import SubtitleTrack from '$lib/components/player/SubtitleTrack.svelte';
   import OrganizeStrip from '$lib/components/player/OrganizeStrip.svelte';
@@ -50,6 +56,8 @@
     title: string;
     file_name: string;
     file_path: string | null;
+    /** 未脱敏的真实本地路径（仅详情接口返回）；mpv 内核直接读文件用。 */
+    local_path?: string | null;
     media_type: string;
     mime_type: string | null;
     file_size: number | null;
@@ -74,10 +82,27 @@
 
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-  // mediaId 必须在初始化时从真实 URL 读一次：popstate（详情/播放器返回）重挂载
-  // 组件时，SvelteKit page store 只恢复 pathname、丢失 query，用 $page.url 会
-  // 得到空 id → 显示"未指定要播放的媒体"。详见 lib/utils/urlState.ts。
-  const mediaId = realQueryParam('id') ?? '';
+  // mediaId 走 liveQueryParam（响应式）：popstate（详情/播放器返回）重挂载时读的是
+  // window.location 真值，不会像 $page.url 那样丢 query；同时 ?id= 变化（播放器内
+  // 切换上一个/下一个）能触发下方 $effect 自动重载，无需重建组件。
+  const mediaId = $derived(liveQueryParam('id') ?? '');
+
+  // 片段深链起播点：详情页「片段标记 → 跳转」带 ?t=<start> 进来。它必须优先于
+  // playback_position 续播——否则会停在上次看到的位置，而那个位置往往正好是
+  // 片段结尾，看起来就像"跳到了结束时间"。只消费一次，避免切换上下一个视频时误用。
+  // 哨兵值 -1 表示「本次没有显式起播点」；0 是合法的起播点（片段从 0:00 开始），
+  // 不能被当作「无参数」而退回续播进度。
+  let pendingStartAt = (() => {
+    const raw = realQueryParam('t');
+    if (raw === null || raw === '') return -1;
+    const v = Number(raw);
+    return Number.isFinite(v) && v >= 0 ? v : -1;
+  })();
+  function takePendingStart(): number {
+    const v = pendingStartAt;
+    pendingStartAt = -1;
+    return v;
+  }
 
   // —— 媒体与加载 ——
   let media = $state<PlayerMedia | null>(null);
@@ -98,8 +123,13 @@
     return source?.url ?? null;
   }
 
-  // —— 视频元素与播放状态（绑定 <video>）——
+  // —— 播放内核与播放状态 ——
+  // 内核负责解码与播放（mpv / <video>），页面状态只是它的镜像，避免两套真相源。
+  const kernel = new PlayerKernel(resolveWindowLabel());
+  // <video> 回退元素（mpv 模式下不渲染，仅用于浏览器调试）
   let videoEl = $state<HTMLVideoElement | null>(null);
+  // 播放画面舞台：用于把 mpv 的渲染区域对齐到该矩形
+  let stageEl = $state<HTMLDivElement | null>(null);
   let containerEl = $state<HTMLDivElement | null>(null);
   let paused = $state(true);
   let currentTime = $state(0);
@@ -252,6 +282,8 @@
     if (mid !== lastMediaIdForSource) {
       lastMediaIdForSource = mid;
       activeSourceIdx = 0;
+      autoRefreshKey = null;
+      autoOpenedKey = null;
     }
   });
 
@@ -288,6 +320,13 @@
     !!media && isAdultNetworkMedia(media) && !!extractFancode(media.title || media.file_name || '')
   );
   let refreshingSource = $state(false);
+  // 播放失败后自动续签：刷新期间显示"正在刷新播放源…"覆盖层。autoRefreshKey
+  // 记录已自动续签过的「媒体:源」，保证同一源只自动续签一次，避免
+  // 「失败 → 刷新 → 再失败」的死循环。
+  let autoRefreshing = $state(false);
+  let autoRefreshKey: string | null = null;
+  // 刷新源仍失败时自动跳原站：同一条媒体只自动跳一次，避免反复弹浏览器。
+  let autoOpenedKey: string | null = null;
   // F5 fix: set when a network-source refresh should auto-play the new
   // stream; consumed by onLoadedMetadata (or cleared after a direct play).
   let pendingAutoPlay = $state(false);
@@ -328,21 +367,99 @@
     }
   }
 
+  /** 播放失败的最后兜底：在聚合站原站打开。
+   *
+   * 有些源在 CDN 侧已整体不可用（换 UA/Referer/出口 IP 仍是 403/5xx），
+   * 属于源失效而非防盗链；此时原站页面仍可访问，交给原站播放器。 */
+  async function openAdultPage(): Promise<void> {
+    const fc = media ? extractFancode(media.title || media.file_name || '') : null;
+    if (!fc) return;
+    try {
+      const res = await adultNetworkApi.page(fc);
+      await openExternalUrl(res.page_url);
+    } catch {
+      await openExternalUrl(`https://javgg.net/jav/${fc.toLowerCase()}/`);
+    }
+  }
+
+  /** 刷新源失败后自动跳原站（同一条媒体只跳一次）。返回是否真的跳了。 */
+  async function autoOpenAdultPage(): Promise<boolean> {
+    if (!media) return false;
+    const fc = extractFancode(media.title || media.file_name || '');
+    if (!fc) return false;
+    const key = `${media.id}:${fc.toLowerCase()}`;
+    if (autoOpenedKey === key) return false;
+    autoOpenedKey = key;
+    await openAdultPage();
+    return true;
+  }
+
+  /**
+   * 网络源播放失败时的统一出口：成人聚合站媒体自动刷新源并重播（期间显示
+   * "正在刷新播放源…"）；刷新仍失败说明源已失效，自动在聚合站原站打开。
+   * 同一「媒体:源」只自动续签一次（autoRefreshKey），防止反复失败的死循环。
+   */
+  async function handleNetworkFailure(message: string): Promise<void> {
+    const key = `${media?.id ?? ''}:${activeSourceIdx}`;
+    if (canRefreshAdultSource && !refreshingSource && autoRefreshKey !== key) {
+      autoRefreshKey = key;
+      networkPlayError = null;
+      autoRefreshing = true;
+      let refreshed = false;
+      try {
+        await refreshAdultSource();
+        // refreshAdultSource 成功时会清空 networkPlayError；仍有值即失败。
+        refreshed = !networkPlayError;
+      } finally {
+        autoRefreshing = false;
+      }
+      if (refreshed) {
+        toast('播放源已自动续签，正在重新起播');
+        return;
+      }
+      // 刷新后仍无可播源：直接跳原站，由原站播放器接手。
+      const opened = await autoOpenAdultPage();
+      networkPlayError = opened
+        ? '当前播放源已失效，已在浏览器打开原站页面'
+        : message;
+      return;
+    }
+    // 已经自动续签过、重播仍然失败：刚换到的新源同样不可用 → 跳原站。
+    if (canRefreshAdultSource && autoRefreshKey === key) {
+      const opened = await autoOpenAdultPage();
+      if (opened) {
+        networkPlayError = '当前播放源已失效，已在浏览器打开原站页面';
+        return;
+      }
+    }
+    networkPlayError = message;
+  }
+
   const streamUrl = $derived.by(() => {
     if (!media) return '';
+    // 闭包内不保留 media 的非空收窄（$state 变量可能随时变化），先取出 id。
+    const mid = media.id;
     if (isImage) return mediaApi.thumbnailUrl(String(media.id), media.updated_at);
+    // 网络源统一走后端代理：代理会补 Referer/UA 并重写 m3u8 相对路径，
+    // mpv 与 hls.js 都能直接消费，因此两种内核共用同一个地址。
+    const proxied = (): string => {
+      const srcId = playableSources[activeSourceIdx]?.id;
+      return `${BASE_URL}/media/${mid}/network-stream${srcId ? `?url_id=${srcId}` : ''}`;
+    };
+    if (kernel.native && isNetworkPlayback) return proxied();
     // HLS 流：直接使用原始 URL（hls.js 负责加载，避免代理导致播放列表相对路径错乱）
     if (networkMode === 'hls') {
       return networkSourceUrl ?? '';
     }
     // 直链视频：通过后端代理解决 CORS，支持 Range 请求
-    // url_id 指定当前选中的源（多源切换时代理必须转发正确的 URL）
     if (networkMode === 'direct') {
-      const srcId = playableSources[activeSourceIdx]?.id;
-      return `${BASE_URL}/media/${media.id}/network-stream${srcId ? `?url_id=${srcId}` : ''}`;
+      return proxied();
     }
     // 本地文件可用
     if (!media.file_missing && media.media_type !== 'network') {
+      // mpv 直接读绝对路径（file_path 已被后端脱敏，只有 local_path 是真实路径）；
+      // <video> 回退需要后端 HTTP 流（必要时带 ?start= 转码偏移）
+      if (kernel.native) return media.local_path ?? '';
       return streamStart > 0
         ? `${mediaApi.streamUrl(String(media.id))}?start=${streamStart}`
         : mediaApi.streamUrl(String(media.id));
@@ -384,8 +501,9 @@
   // 转码流不支持服务端 Range、原生 seek 会被浏览器拒绝（闪回），需走 ?start= 重载。
   // seekable 预检/700ms 验证仅作运行时兜底（见 seek 函数）。
   // 网络播放时始终使用原生 seek（代理支持 Range 请求，HLS 由 hls.js 管理）
+  // mpv 自带解复用与解码，本地文件永远直读，不再需要转码流（以及配套的 ?start= 重载 seek）
   const needsTranscoding = $derived(
-    media && !isNetworkPlayback ? (media.needs_transcode ||
+    !kernel.native && media && !isNetworkPlayback ? (media.needs_transcode ||
              media.file_name?.toLowerCase().endsWith('.mkv') ||
              (media.mime_type ?? '').includes('matroska')) : false
   );
@@ -395,6 +513,214 @@
   const displayDuration = $derived(media?.duration ?? duration);
   // 显示用的缓冲位置
   const displayBuffered = $derived(streamStart + buffered);
+
+  // 进度条预览帧预取：打开播放器 / 每次跳转后，让后端后台预热"当前位置 ±
+  // PREVIEW_WARM_WINDOW 秒"的预览帧。用户随后 hover 进度条时帧已在磁盘缓存，
+  // 预览瞬时出现，不再有"等缩略图生成"的停顿。
+  // 节流：距上次预热中心不到半个窗口就不再请求（连续 seek 不会刷屏）。
+  // 失败静默忽略——预取是锦上添花，不影响播放。
+  const PREVIEW_WARM_WINDOW = 20;
+  let lastWarmCenter = -1e9;
+  function warmPreviewWindow(center: number): void {
+    if (!mediaId || !(displayDuration > 0) || !Number.isFinite(center)) return;
+    if (Math.abs(center - lastWarmCenter) < PREVIEW_WARM_WINDOW / 2) return;
+    lastWarmCenter = center;
+    void mediaApi
+      .prefetchScreenshots(mediaId, center, PREVIEW_WARM_WINDOW)
+      .catch(() => {});
+  }
+
+  // 时长就绪（媒体加载完成）时预热一次起播位置。
+  let warmedFor = '';
+  $effect(() => {
+    const id = mediaId;
+    const dur = displayDuration;
+    if (!id || !(dur > 0) || warmedFor === id) return;
+    warmedFor = id;
+    lastWarmCenter = -1e9;
+    warmPreviewWindow(displayTime);
+  });
+
+  // ==================== 播放内核接线 ====================
+  // 桌面端 = mpv 原生内核（画面在子窗口渲染，WebView 只叠控制层）；
+  // 浏览器 = <video> 回退，下方所有 native 分支不生效，原有事件链保持原样。
+  let kernelReady = $state(false);
+
+  onMount(() => {
+    // mpv 模式下 WebView 必须整体透明：任何不透明底色都会盖住下层的 mpv 子窗口。
+    if (kernel.native) document.documentElement.classList.add('vitoice-player-native');
+    void kernel.init().then(() => {
+      kernelReady = true;
+    });
+  });
+
+  // 内核状态 → 页面镜像。页面其余逻辑继续读 paused/currentTime/... 这几个变量，
+  // 因此进度条、快捷键、片段标记等既有代码无需改动。
+  $effect(() => {
+    if (!kernel.native) return;
+    paused = kernel.paused;
+    currentTime = kernel.currentTime;
+    duration = kernel.duration;
+    buffered = kernel.buffered;
+    waiting = kernel.waiting;
+  });
+
+  // 页面偏好 → 内核（音量/静音/倍速由本地偏好单向驱动，内核不反向回灌）
+  $effect(() => {
+    if (!kernel.native || !kernelReady) return;
+    void kernel.setVolume(volume);
+  });
+  $effect(() => {
+    if (!kernel.native || !kernelReady) return;
+    void kernel.setMuted(muted);
+  });
+  $effect(() => {
+    if (!kernel.native || !kernelReady) return;
+    void kernel.setSpeed(playbackRate);
+  });
+
+  // 片源加载：mpv 直接吃本地绝对路径或后端代理 URL，不再需要转码流与 ?start= 重载
+  $effect(() => {
+    if (!kernel.native || !kernelReady) return;
+    const url = streamUrl;
+    if (!url || isImage) return;
+    untrack(() => {
+      const saved = media?.playback_position ?? 0;
+      const netSaved = isNetworkPlayback
+        ? (media?.urls?.find((u) => u.url_role === 'source' && !u.is_expired)?.played_progress ?? 0)
+        : 0;
+      // 片段跳转带来的显式起播点优先级最高，其次才是续播进度
+      const explicit = takePendingStart();
+      kernel.setResume(explicit >= 0 ? explicit : saved > 0 ? saved : netSaved);
+      seeking = false;
+      seekPreviewUrl = '';
+      void kernel.load({ url });
+    });
+  });
+
+  // 内核事件回调（仅 native 分支触发；onEnded 与 <video> 版本语义一致，直接复用）
+  $effect(() => {
+    if (!kernel.native) return;
+    kernel.onLoadedMetadata = onNativeLoadedMetadata;
+    kernel.onEnded = onEnded;
+    kernel.onError = onNativeError;
+  });
+
+  // 舞台矩形 → mpv 画面内缩比例。
+  // mpv 子窗口铺满整个窗口客户区，必须把画面限制在舞台矩形内才不会被控制层/侧栏挤压错位。
+  $effect(() => {
+    if (!kernel.native || !kernelReady) return;
+    const el = stageEl;
+    if (!el) return;
+    let lastKey = '';
+    const apply = (): void => {
+      const r = el.getBoundingClientRect();
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+      if (r.width <= 0 || r.height <= 0) return;
+      const ratio = {
+        left: Math.max(0, r.left) / vw,
+        top: Math.max(0, r.top) / vh,
+        right: Math.max(0, vw - r.right) / vw,
+        bottom: Math.max(0, vh - r.bottom) / vh
+      };
+      const key = `${ratio.left.toFixed(4)}|${ratio.top.toFixed(4)}|${ratio.right.toFixed(4)}|${ratio.bottom.toFixed(4)}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      void kernel.setMarginRatio(ratio);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    window.addEventListener('resize', apply);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', apply);
+    };
+  });
+
+  // 字幕（native）：改由 mpv 自己渲染——画面在 mpv 子窗口里，HTML 覆盖层拿不到与帧对齐的时基
+  $effect(() => {
+    if (!kernel.native || !kernelReady) return;
+    const sub = currentSubtitle;
+    const on = captionsOn;
+    const mid = media?.id ?? null;
+    if (!on || !sub || mid == null) {
+      untrack(() => void kernel.setSubVisible(false));
+      return;
+    }
+    untrack(() => void syncMpvSubtitle(mid, sub));
+  });
+
+  // 字幕样式（native）：随全局设置变化即时下发
+  $effect(() => {
+    if (!kernel.native || !kernelReady) return;
+    void kernel.applySubtitleStyle({
+      fontSize: settingsStore.subtitleFontSize,
+      position: settingsStore.subtitlePosition,
+      color: settingsStore.subtitleColor,
+      stroke: settingsStore.subtitleStroke,
+      bgOpacity: settingsStore.subtitleBgOpacity
+    });
+  });
+
+  /** 取字幕文本 → 落临时文件 → sub-add 给 mpv。外挂/内封/网络三种来源走同一条路。 */
+  let subSyncSeq = 0;
+  async function syncMpvSubtitle(mediaIdNum: number, sub: Subtitle): Promise<void> {
+    const seq = ++subSyncSeq;
+    try {
+      const resp = await fetch(`${BASE_URL}/media/${mediaIdNum}/subtitles/${sub.id}/content`);
+      if (!resp.ok) throw new Error(`subtitle ${resp.status}`);
+      const data = (await resp.json()) as { content?: string; format?: string | null };
+      const text = data?.content;
+      if (seq !== subSyncSeq) return;
+      if (!text) {
+        await kernel.setSubVisible(false);
+        return;
+      }
+      const path = await mpvWriteSubtitle(text, sniffSubtitleExt(text, data.format ?? sub.file_format));
+      if (seq !== subSyncSeq) return;
+      await kernel.setSubtitleFile(path);
+      await kernel.setSubVisible(true);
+    } catch {
+      if (seq !== subSyncSeq) return;
+      await kernel.setSubVisible(false);
+    }
+  }
+
+  /** 按内容嗅探字幕格式决定临时文件扩展名（后端对部分来源只给 null）。 */
+  function sniffSubtitleExt(text: string, hint?: string | null): string {
+    const h = (hint ?? '').toLowerCase().replace(/^\./, '');
+    if (h === 'ass' || h === 'ssa' || h === 'srt' || h === 'vtt' || h === 'sub') return h;
+    const head = text.slice(0, 400).toUpperCase();
+    if (head.includes('[SCRIPT INFO]')) return 'ass';
+    if (head.trimStart().startsWith('WEBVTT')) return 'vtt';
+    return 'srt';
+  }
+
+  /** 内核起播回调：起播位置已由内核以 mpv 的 start 属性下发，这里只管自动播放与提示。 */
+  function onNativeLoadedMetadata(): void {
+    seeking = false;
+    seekPreviewUrl = '';
+    if (!media) return;
+    if (!isImage) {
+      void kernel.play();
+      pendingAutoPlay = false;
+      showOrganize();
+    }
+  }
+
+  /** 内核错误回调：与 <video> 分支的 onVideoError 保持同样的用户可见反馈。 */
+  function onNativeError(code: number, message: string): void {
+    if (code === 1) return;
+    if (isNetworkPlayback) {
+      void handleNetworkFailure(
+        '网络源播放失败——源可能已失效或过期，请返回详情页点击「刷新源」更新'
+      );
+    } else {
+      console.warn('[Player] mpv 播放错误:', code, message);
+    }
+  }
 
   // —— 持久化助手 ——
   function loadPref<T>(key: string, fallback: T): T {
@@ -580,7 +906,9 @@
         // annotate them, or a rename on the hls.js side stops being caught.
         hlsInstance.on(Hls.Events.ERROR, (_evt, data) => {
           if (data.fatal) {
-            networkPlayError = 'HLS 流播放失败——源可能已失效或过期，请返回详情页点击「刷新源」更新';
+            void handleNetworkFailure(
+              'HLS 流播放失败——源可能已失效或过期，请返回详情页点击「刷新源」更新'
+            );
           }
         });
         // 清晰度：解析 master playlist 的 levels + 应用记忆偏好
@@ -709,10 +1037,12 @@
       return;
     }
 
-    // 正常加载：恢复上次播放位置
-    let saved = media.playback_position ?? 0;
+    // 正常加载：片段跳转的显式起播点优先，其次恢复上次播放位置
+    const explicitStart = takePendingStart();
+    let saved = explicitStart >= 0 ? explicitStart : (media.playback_position ?? 0);
     // 网络播放：如果主进度为 0，尝试从 URL 的 played_progress 恢复（跨源进度同步）
-    if (isNetworkPlayback && saved === 0) {
+    // 显式起播点优先，此时不做跨源续播恢复
+    if (isNetworkPlayback && saved === 0 && explicitStart < 0) {
       const sourceUrlObj = media.urls?.find((u) => u.url_role === 'source' && !u.is_expired);
       if (sourceUrlObj?.played_progress && sourceUrlObj.played_progress > 0) {
         saved = sourceUrlObj.played_progress;
@@ -822,9 +1152,10 @@
     // seek 期间（转码流切换 src）的所有错误都静默忽略
     if (code === 1 || seeking) return;
     if (isNetworkPlayback) {
-      // 网络源失败：明确提示（直链可能已过期/失效），而不是黑屏静默
-      networkPlayError =
-        '网络源播放失败——源可能已失效或过期，请返回详情页点击「刷新源」更新';
+      // 网络源失败：成人源自动续签并重播，其余明确提示（直链可能已过期/失效）
+      void handleNetworkFailure(
+        '网络源播放失败——源可能已失效或过期，请返回详情页点击「刷新源」更新'
+      );
     } else {
       console.warn('[Player] 视频错误:', code, videoEl.error.message);
     }
@@ -832,7 +1163,14 @@
 
   // —— 播放控制 ——
   async function togglePlay(): Promise<void> {
-    if (!videoEl || isImage) return;
+    if (isImage) return;
+    // 原生内核：mpv 自己播/停；浏览器回退：仍走 <video>。
+    if (kernel.native) {
+      if (paused) await kernel.play();
+      else await kernel.pause();
+      return;
+    }
+    if (!videoEl) return;
     if (paused) {
       try {
         await videoEl.play();
@@ -862,6 +1200,17 @@
     }
     if (dur <= 0 && Number.isFinite(duration) && duration > 0) dur = duration;
     const target = Math.max(0, Math.min(dur, t));
+
+    // 跳转后预热目标位置附近的预览帧，让随后的进度条 hover 直接命中缓存。
+    warmPreviewWindow(target);
+
+    // 原生内核：mpv 直接绝对定位 seek，不存在"流不支持 Range"的降级问题，
+    // 也无需 streamStart / 目标帧预览那套转码流补丁。
+    if (kernel.native) {
+      void kernel.seek(target);
+      currentTime = target;
+      return;
+    }
 
     // 转码流：检查目标位置是否在已缓冲范围内
     if (needsTranscoding && videoEl) {
@@ -975,6 +1324,11 @@
     seek(displayTime + d);
   }
   function stepFrame(forward: boolean): void {
+    // 原生内核：mpv 的 frame-step / frame-back-step 在暂停态下逐帧，且保留音频位置。
+    if (kernel.native) {
+      void kernel.stepFrame(forward);
+      return;
+    }
     if (!paused) videoEl?.pause();
     seek(displayTime + (forward ? 1 / 30 : -1 / 30));
   }
@@ -1040,25 +1394,13 @@
       return;
     }
     try {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const existing = await WebviewWindow.getByLabel('mini');
-      if (existing) await existing.close();
       // 主播放器暂停并落盘进度，mini 窗口从后端读回续播
-      videoEl?.pause();
+      if (kernel.native) await kernel.pause();
+      else videoEl?.pause();
       await saveProgress();
-      new WebviewWindow('mini', {
-        url: `/mini-player?id=${media.id}`,
-        title: 'vitoice 迷你播放',
-        // 16:9 视频比例的独立小窗（剥离 AppShell 后整窗即播放器）
-        width: 480,
-        height: 270,
-        minWidth: 320,
-        minHeight: 180,
-        resizable: true,
-        alwaysOnTop: true,
-        decorations: false,
-        skipTaskbar: true,
-      });
+      // 建窗交给 Rust：WebView2 的环境参数必须与主窗口一致，前端 new WebviewWindow
+      // 会退回默认参数导致环境创建失败（窗口静默不出现）。
+      await invoke('open_mini_window', { mediaId: String(media.id) });
     } catch (e) {
       console.warn('openMiniWindow failed:', e);
     }
@@ -1083,7 +1425,11 @@
     const win = await getTauriWindow();
     if (!win) return;
     // 手动"最大化到工作区"：任务栏保持可见（系统 maximize 在无边框窗口下会覆盖任务栏）
-    isMaximized = await toggleWorkAreaMaximize(win);
+    try {
+      isMaximized = await toggleWorkAreaMaximize(win);
+    } catch {
+      /* ignore */
+    }
   }
   async function closeWindow(): Promise<void> {
     (await getTauriWindow())?.close();
@@ -1307,30 +1653,56 @@
     return false;
   }
   async function screenshot(toFile: boolean): Promise<void> {
-    if (!videoEl || isImage) {
-      toast(isImage ? '图片媒体不支持截图' : '无法截取当前帧');
+    if (isImage) {
+      toast('图片媒体不支持截图');
       return;
     }
-    const w = videoEl.videoWidth;
-    const h = videoEl.videoHeight;
-    if (!w || !h) {
-      toast('视频尚未就绪');
-      return;
+    let blob: Blob | null = null;
+    if (kernel.native) {
+      // mpv 走原生 screenshot-to-file：与当前帧逐像素一致，且无 canvas 跨域污染。
+      blob = await kernel.captureFrame();
+      if (!blob) {
+        toast('截图失败');
+        return;
+      }
+    } else {
+      if (!videoEl) {
+        toast('无法截取当前帧');
+        return;
+      }
+      const w = videoEl.videoWidth;
+      const h = videoEl.videoHeight;
+      if (!w || !h) {
+        toast('视频尚未就绪');
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        toast('截图失败');
+        return;
+      }
+      try {
+        ctx.drawImage(videoEl, 0, 0, w, h);
+      } catch {
+        toast('截图失败（跨域限制）');
+        return;
+      }
+      blob = await new Promise((resolve) => {
+        try {
+          canvas.toBlob((b) => resolve(b), 'image/png');
+        } catch {
+          resolve(null);
+        }
+      });
+      if (!blob) {
+        toast('截图失败（跨域限制）');
+        return;
+      }
     }
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      toast('截图失败');
-      return;
-    }
-    try {
-      ctx.drawImage(videoEl, 0, 0, w, h);
-    } catch {
-      toast('截图失败（跨域限制）');
-      return;
-    }
+
     // 闪光
     flash = true;
     if (flashTimer) clearTimeout(flashTimer);
@@ -1338,18 +1710,6 @@
 
     const baseName = (media?.file_name ?? 'screenshot').replace(/\.[^.]+$/, '');
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-
-    const blob: Blob | null = await new Promise((resolve) => {
-      try {
-        canvas.toBlob((b) => resolve(b), 'image/png');
-      } catch {
-        resolve(null);
-      }
-    });
-    if (!blob) {
-      toast('截图失败（跨域限制）');
-      return;
-    }
 
     if (toFile) {
       try {
@@ -1386,14 +1746,15 @@
   // （刮削不覆盖），updated_at onupdate 自动破 7 天封面缓存。
   let settingCover = $state(false);
   async function setCoverFromFrame(): Promise<void> {
-    if (!videoEl || isImage || !media) {
+    if (isImage || !media) {
       toast(isImage ? '图片媒体无需设置封面' : '无法获取当前帧');
       return;
     }
     if (settingCover) return;
     settingCover = true;
     try {
-      const t = videoEl.currentTime || 0;
+      // currentTime 对两种内核都有效：浏览器由 <video> 事件写回，桌面端是 mpv time-pos 的镜像。
+      const t = currentTime || 0;
       const resp = await fetch(
         `${BASE_URL}/media/${media.id}/poster-from-frame?t=${encodeURIComponent(String(t))}`,
         { method: 'POST' }
@@ -1509,7 +1870,7 @@
     // to the stage; only start the long-press (2x speed) gesture on the
     // bare stage/video area, never on interactive controls.
     const target = e.target as HTMLElement | null;
-    if (target?.closest?.('.bottom-controls,.top-bar,.play-center,.seg-panel')) return;
+    if (target?.closest?.('.bottom-controls,.top-bar,.play-center,.seg-panel,.nav-arrow')) return;
     pressStart = { x: e.clientX, y: e.clientY };
     pressTimer = setTimeout(() => {
       longPressActive = true;
@@ -1739,6 +2100,16 @@
     }
   }
 
+  // —— 播放器内切换上一个 / 下一个视频（沿用媒体库当前列表顺序）——
+  // 队列由媒体页写入；直接深链进入播放器时队列为空 → 箭头隐藏。
+  const queueNav = $derived(queueNeighbors(mediaId));
+  function gotoNeighbor(item: QueueItem | null): void {
+    if (!item) return;
+    // 先落盘当前进度，再替换 ?id=（保留 from，退出时仍回原来源）
+    void saveProgress();
+    void goto(urlWithParam('id', String(item.id)));
+  }
+
   // —— 从网络源播放（平台链接在系统浏览器打开）——
   function playFromNetwork(): void {
     if (fileMissingInfo?.networkUrl) {
@@ -1802,6 +2173,11 @@
         /* 元素已分离，忽略 */
       }
     }
+
+    // 原生内核：销毁 mpv 实例，释放解码器与音频输出；并摘掉透明模式标记，
+    // 否则返回其它页面时整站背景会保持透明。
+    document.documentElement.classList.remove('vitoice-player-native');
+    void kernel.destroy();
   });
 </script>
 
@@ -1815,7 +2191,7 @@
   onvisibilitychange={onVisibility}
 />
 
-<div class="player-root" bind:this={containerEl} class:fs={isFullscreen}>
+<div class="player-root" bind:this={containerEl}>
   {#if loading}
     <div class="state-screen">
       <div class="spinner"></div>
@@ -1858,6 +2234,11 @@
         </div>
       {/if}
     </div>
+  {:else if autoRefreshing}
+    <div class="state-screen">
+      <div class="spinner"></div>
+      <div class="state-text">正在刷新播放源…</div>
+    </div>
   {:else if networkPlayError}
     <div class="state-screen">
       <div class="state-text err">{networkPlayError}</div>
@@ -1867,6 +2248,10 @@
             <svg viewBox="0 0 24 24" width="15" height="15"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" fill="currentColor"/></svg>
             {refreshingSource ? '刷新中…' : '刷新源'}
           </button>
+          <button class="back-btn" onclick={openAdultPage}>
+            <svg viewBox="0 0 24 24" width="15" height="15"><path d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42L17.59 5H14V3zM5 5h6v2H6v11h11v-5h2v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" fill="currentColor"/></svg>
+            在原站打开
+          </button>
         {/if}
         <button class="back-btn" onclick={exitPlayer}>返回</button>
       </div>
@@ -1875,6 +2260,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div
       class="stage"
+      bind:this={stageEl}
       role="presentation"
       class:cursor-hidden={!controlsVisible && isPlaying && !anyDialogOpen}
       onpointerdown={onStagePointerDown}
@@ -1886,7 +2272,9 @@
     >
       {#if isImage}
         <img class="media-image" src={streamUrl} alt={title} draggable="false" />
-      {:else}
+      {:else if !kernel.native}
+        <!-- 浏览器回退：<video> 直接渲染。桌面端画面在 mpv 子窗口里，
+             WebView 不渲染视频元素（stageEl 只用于量出画面区矩形）。 -->
         <!-- svelte-ignore a11y_media_has_caption -->
         <video
           bind:this={videoEl}
@@ -1909,7 +2297,7 @@
           onerror={onVideoError}
         ></video>
         <!-- 转码流 seek 重载期间叠加目标帧预览（避免黑屏；新流 ready 后隐藏） -->
-        {#if !isImage && seeking && seekPreviewUrl}
+        {#if seeking && seekPreviewUrl}
           <div class="seek-preview" style={`background-image:url('${seekPreviewUrl}')`}></div>
         {/if}
       {/if}
@@ -1922,13 +2310,16 @@
         </div>
       {/if}
 
-      <!-- 字幕轨道 -->
-      <SubtitleTrack
-        subtitle={currentSubtitle}
-        mediaId={String(media.id)}
-        currentTime={displayTime}
-        enabled={captionsOn && !isImage}
-      />
+      <!-- 字幕轨道（仅浏览器回退）：桌面端由 mpv 自己渲染字幕，HTML 覆盖层
+           拿不到与 mpv 帧对齐的时基，叠上去只会与画面不同步。 -->
+      {#if !kernel.native}
+        <SubtitleTrack
+          subtitle={currentSubtitle}
+          mediaId={String(media.id)}
+          currentTime={displayTime}
+          enabled={captionsOn && !isImage}
+        />
+      {/if}
 
       <!-- 长按 2× 提示 -->
       {#if longPressActive}
@@ -1938,6 +2329,30 @@
       <!-- 缓冲 / Seek 加载指示（250ms 去抖，避免每次 seek 闪圈） -->
       {#if spinnerVisible && !isImage}
         <div class="spinner big"></div>
+      {/if}
+
+      <!-- 上一个 / 下一个视频（沿用媒体库列表顺序；深链进入无队列时隐藏） -->
+      {#if queueNav.prev || queueNav.next}
+        <button
+          class="nav-arrow prev"
+          class:visible={controlsVisible || paused}
+          disabled={!queueNav.prev}
+          onclick={(e) => { e.stopPropagation(); gotoNeighbor(queueNav.prev); }}
+          title={queueNav.prev ? `上一个：${queueNav.prev.title}` : '上一个'}
+          aria-label={queueNav.prev ? `上一个：${queueNav.prev.title}` : '上一个'}
+        >
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6" /></svg>
+        </button>
+        <button
+          class="nav-arrow next"
+          class:visible={controlsVisible || paused}
+          disabled={!queueNav.next}
+          onclick={(e) => { e.stopPropagation(); gotoNeighbor(queueNav.next); }}
+          title={queueNav.next ? `下一个：${queueNav.next.title}` : '下一个'}
+          aria-label={queueNav.next ? `下一个：${queueNav.next.title}` : '下一个'}
+        >
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+        </button>
       {/if}
 
       <!-- 顶部栏 -->
@@ -2058,6 +2473,8 @@
           <!-- 音量：单击静音/恢复，悬停展开滑块 -->
           <div
             class="pop-wrap vol-hover-wrap"
+            role="group"
+            aria-label="音量"
             onmouseenter={() => (volumeOpen = true)}
             onmouseleave={() => (volumeOpen = false)}
           >
@@ -2232,7 +2649,7 @@
       {#if segPanelOpen && media}
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <div class="seg-panel-backdrop" role="presentation" onclick={() => (segPanelOpen = false)}></div>
-        <div class="seg-panel" onclick={(e) => e.stopPropagation()}>
+        <div class="seg-panel" role="dialog" aria-modal="false" aria-label="片段标记" tabindex="-1">
           <div class="seg-panel-head">
             <span class="seg-panel-title">片段标记</span>
             <button class="seg-panel-close" onclick={() => (segPanelOpen = false)} aria-label="关闭片段列表">×</button>
@@ -2341,6 +2758,8 @@
 <style>
   .player-root {
     position: fixed;
+    /* 铺满整个视口：无边框窗口下系统最大化/全屏的客户区都精确等于窗口矩形
+       （实测），没有任务栏遮挡需要让位，全屏时画面与控制层自然铺到 2560x1440。 */
     inset: 0;
     background: #000;
     color: #fff;
@@ -2453,6 +2872,46 @@
     pointer-events: none;
   }
 
+  /* 上一个 / 下一个视频箭头：贴舞台左右边缘，随控制条显隐 */
+  .nav-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%) scale(0.96);
+    z-index: 22;
+    width: 52px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 50%;
+    background: rgba(10, 12, 14, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: #f4f4f7;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease, transform 200ms ease, background 160ms ease, border-color 160ms ease;
+  }
+  .nav-arrow.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(-50%) scale(1);
+  }
+  .nav-arrow.prev { left: 22px; }
+  .nav-arrow.next { right: 22px; }
+  .nav-arrow:hover:not(:disabled) {
+    background: var(--accent);
+    border-color: var(--accent);
+    transform: translateY(-50%) scale(1.08);
+  }
+  .nav-arrow:disabled {
+    opacity: 0.18;
+    cursor: not-allowed;
+  }
+  .nav-arrow:disabled.visible { opacity: 0.24; }
+
   /* 顶部栏 */
   .top-bar {
     position: absolute;
@@ -2507,13 +2966,12 @@
     flex: 1;
   }
 
-  /* 窗口控制按钮（Tauri 桌面端） */
+  /* 窗口控制按钮（Tauri 桌面端；WebView2 只认 -webkit- 前缀） */
   .win-controls {
     display: flex;
     align-items: center;
     gap: 2px;
     -webkit-app-region: no-drag;
-    app-region: no-drag;
   }
   .win-btn {
     display: inline-flex;

@@ -1,6 +1,6 @@
 [package]
 name = "vitoice"
-version = "3.0.1"
+version = "3.0.4"
 description = "vitoice - 桌面媒体素材管理应用"
 authors = ["vitoice"]
 edition = "2021"
@@ -10,14 +10,24 @@ rust-version = "1.77"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# tray-icon：系统托盘常驻（关闭窗口最小化到托盘，托盘菜单可唤起/退出）
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-os = "2"
+# 单实例：二次启动不再开新进程，改为唤起已有窗口（托盘常驻下必需，
+# 否则用户从快捷方式启动会得到"看不见"的第二个进程）
+tauri-plugin-single-instance = "2"
 # 替代 tauri-plugin-shell 的 open()（后者自 2.1.0 起 deprecated）：
 # shell.open 默认仅放行 mailto/tel/http(s)，本地目录路径会被作用域正则拒绝。
 # opener 将 URL 与本地路径拆成 openUrl / openPath 两个独立 API 与权限。
 tauri-plugin-opener = "2"
+# 原生播放内核（libmpv）：把 mpv 作为子窗口嵌进 Tauri 窗口，绕开 WebView2 的编码限制
+tauri-plugin-libmpv = "0.3"
+# 日志：tauri-runtime-wry 创建窗口失败时只 log::error! 不外抛，
+# 没有 logger 就完全静默——排查窗口问题时必须装上。
+tauri-plugin-log = "2"
+log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

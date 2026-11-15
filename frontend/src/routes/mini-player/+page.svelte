@@ -1,18 +1,27 @@
 <script lang="ts">
   /**
-   * 迷你置顶小窗（由主播放器「小窗」按钮创建的 Tauri WebviewWindow，label=mini）。
-   * 极简播放：自动续播 + 播放/暂停 + 进度条 + 音量 + 回到主窗。
-   * 进度仍写后端 /media/{id}/progress，主播放器下次打开自动续上。
+   * 迷你置顶小窗（由主播放器「小窗」按钮经 Rust open_mini_window 创建的
+   * Tauri WebviewWindow，label=mini）。极简播放：自动续播 + 播放/暂停 + 进度条
+   * + 音量 + 回到主窗。
+   *
+   * 与主播放页共用 PlayerKernel：桌面端画面由 mpv 子窗口渲染（因此窗口建的时候
+   * 就把 WebView2 底刷成透明），浏览器调试时回退 <video>。进度仍写后端
+   * /media/{id}/progress，主播放器下次打开自动续上。
    */
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { client } from '$lib/api/client';
   import { mediaApi, type MediaPayload } from '$lib/api/media';
   import { realQueryParam } from '$lib/utils/urlState';
+  import { PlayerKernel } from '$lib/player/kernel.svelte';
+  import { resolveWindowLabel } from '$lib/player/mpv';
 
   // 读 window.location 而非 $page.url：popstate 重挂载时 page store 会丢 query。
   const mediaId = realQueryParam('id') ?? '';
 
-  let videoEl: HTMLVideoElement | null = $state(null);
+  const kernel = new PlayerKernel(resolveWindowLabel());
+
+  let stageEl = $state<HTMLDivElement | null>(null);
+  let videoEl = $state<HTMLVideoElement | null>(null);
   let title = $state('');
   let loadError = $state<string | null>(null);
   let playing = $state(false);
@@ -21,18 +30,34 @@
   let volume = $state(1);
   let muted = $state(false);
 
-  let resumed = false;
   let lastSaved = 0;
+  let streamUrl = $state('');
 
-  const streamUrl = $derived(mediaId ? mediaApi.streamUrl(mediaId) : '');
+  /** 迷你窗只播本地文件：mpv 直接读绝对路径，浏览器回退走后端 HTTP 流。 */
+  async function resolveStreamUrl(): Promise<string> {
+    if (!mediaId) return '';
+    try {
+      const raw = await client.get<Partial<MediaPayload>>(`/media/${mediaId}`);
+      title = raw?.title ?? raw?.file_name ?? '';
+      if (raw?.file_missing || raw?.media_type === 'network') {
+        loadError = '迷你小窗仅支持本地文件播放';
+        return '';
+      }
+      // file_path 已被后端脱敏，mpv 只能吃未脱敏的 local_path（详情接口才有）。
+      return kernel.native ? raw?.local_path ?? '' : mediaApi.streamUrl(mediaId);
+    } catch {
+      loadError = '加载媒体失败';
+      return '';
+    }
+  }
 
   async function saveProgress(force = false): Promise<void> {
-    if (!mediaId || !videoEl || !videoEl.duration) return;
+    if (!mediaId || !kernel.ready) return;
     const now = Date.now();
     if (!force && now - lastSaved < 8000) return;
     lastSaved = now;
     void client
-      .post(`/media/${mediaId}/progress`, { position: videoEl.currentTime, speed: 1 })
+      .post(`/media/${mediaId}/progress`, { position: kernel.currentTime, speed: 1 })
       .catch(() => {});
   }
 
@@ -41,15 +66,33 @@
       loadError = '缺少媒体 ID';
       return;
     }
-    const init = async (): Promise<void> => {
+    // mpv 模式下 WebView 必须整体透明，否则会盖住下层 mpv 子窗口的画面。
+    if (kernel.native) document.documentElement.classList.add('vitoice-player-native');
+
+    kernel.onLoadedMetadata = () => {
+      void kernel.play();
+    };
+
+    void (async () => {
+      await kernel.init();
+      const url = await resolveStreamUrl();
+      if (!url) {
+        if (!loadError) loadError = '无法播放此媒体';
+        return;
+      }
+      streamUrl = url;
+      // 续播：主播放器暂停时已把进度写后端，这里读回并作为起播位置交给内核。
+      let pos = 0;
       try {
         const raw = await client.get<Partial<MediaPayload>>(`/media/${mediaId}`);
-        title = raw?.title ?? raw?.file_name ?? '';
+        pos = raw?.playback_position ?? 0;
       } catch {
-        loadError = '加载媒体失败';
+        /* 无进度 → 从头播 */
       }
-    };
-    void init();
+      kernel.setResume(pos > 1 ? pos : 0);
+      await kernel.load({ url });
+    })();
+
     // 窗口关闭/隐藏前尽力保存进度
     const onHide = () => void saveProgress(true);
     window.addEventListener('pagehide', onHide);
@@ -61,24 +104,61 @@
     };
   });
 
-  function onLoadedMetadata(): void {
-    if (!videoEl) return;
-    duration = videoEl.duration;
-    // 续播：主播放器暂停时已把进度写后端，这里读回并跳转（仅一次）
-    void client
-      .get<Partial<MediaPayload>>(`/media/${mediaId}`)
-      .then((raw) => {
-        const pos = raw?.playback_position ?? 0;
-        if (!resumed && pos > 1 && pos < (videoEl?.duration ?? Infinity) - 5) {
-          if (videoEl) videoEl.currentTime = pos;
-        }
-        resumed = true;
-      })
-      .catch(() => {
-        resumed = true;
-      });
-    void videoEl.play().catch(() => {});
-  }
+  onDestroy(() => {
+    document.documentElement.classList.remove('vitoice-player-native');
+    void kernel.destroy();
+  });
+
+  // 内核状态 → 页面镜像（进度条/按钮只读这几个变量）。
+  $effect(() => {
+    if (!kernel.native) return;
+    playing = !kernel.paused;
+    position = kernel.currentTime;
+    duration = kernel.duration;
+  });
+
+  // 音量/静音由页面偏好单向驱动内核。
+  $effect(() => {
+    if (!kernel.native || !kernel.ready) return;
+    void kernel.setVolume(volume);
+  });
+  $effect(() => {
+    if (!kernel.native || !kernel.ready) return;
+    void kernel.setMuted(muted);
+  });
+
+  // 舞台矩形 → mpv 画面内缩比例：mpv 子窗口铺满整个客户区，必须把画面限制在
+  // 标题条与进度条之间的视频区，否则画面会被两侧控制层压扁/错位。
+  $effect(() => {
+    if (!kernel.native || !kernel.ready) return;
+    const el = stageEl;
+    if (!el) return;
+    let lastKey = '';
+    const apply = (): void => {
+      const r = el.getBoundingClientRect();
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+      if (r.width <= 0 || r.height <= 0) return;
+      const ratio = {
+        left: Math.max(0, r.left) / vw,
+        top: Math.max(0, r.top) / vh,
+        right: Math.max(0, vw - r.right) / vw,
+        bottom: Math.max(0, vh - r.bottom) / vh
+      };
+      const key = `${ratio.left.toFixed(4)}|${ratio.top.toFixed(4)}|${ratio.right.toFixed(4)}|${ratio.bottom.toFixed(4)}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      void kernel.setMarginRatio(ratio);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    window.addEventListener('resize', apply);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', apply);
+    };
+  });
 
   function onTimeUpdate(): void {
     if (!videoEl) return;
@@ -86,7 +166,13 @@
     void saveProgress();
   }
 
-  function togglePlay(): void {
+  async function togglePlay(): Promise<void> {
+    if (kernel.native) {
+      if (playing) await kernel.pause();
+      else await kernel.play();
+      if (!playing) void saveProgress(true);
+      return;
+    }
     if (!videoEl) return;
     if (videoEl.paused) {
       void videoEl.play().catch(() => {});
@@ -97,8 +183,13 @@
   }
 
   function seekTo(v: number): void {
-    if (!videoEl) return;
-    videoEl.currentTime = v;
+    if (kernel.native) {
+      void kernel.seek(v);
+      position = v;
+    } else {
+      if (!videoEl) return;
+      videoEl.currentTime = v;
+    }
     void saveProgress(true);
   }
 
@@ -137,24 +228,34 @@
         </svg>
       </button>
     </div>
-    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_media_has_caption -->
-    <video
-      bind:this={videoEl}
-      class="mini-video"
-      src={streamUrl}
-      playsinline
-      onloadedmetadata={onLoadedMetadata}
-      ontimeupdate={onTimeUpdate}
-      onplay={() => (playing = true)}
-      onpause={() => (playing = false)}
-      onclick={togglePlay}
-      onvolumechange={() => {
-        if (videoEl) {
-          volume = videoEl.volume;
-          muted = videoEl.muted;
-        }
-      }}
-    ></video>
+    <!-- 视频舞台：桌面端画面由 mpv 子窗口渲染，此容器只用于量出画面区矩形。 -->
+    <div class="mini-stage" bind:this={stageEl}>
+      {#if !kernel.native}
+        <!-- svelte-ignore a11y_no_static_element_interactions, a11y_media_has_caption -->
+        <video
+          bind:this={videoEl}
+          class="mini-video"
+          src={streamUrl}
+          playsinline
+          onloadedmetadata={() => {
+            if (videoEl) {
+              duration = videoEl.duration;
+              void videoEl.play().catch(() => {});
+            }
+          }}
+          ontimeupdate={onTimeUpdate}
+          onplay={() => (playing = true)}
+          onpause={() => (playing = false)}
+          onclick={togglePlay}
+          onvolumechange={() => {
+            if (videoEl) {
+              volume = videoEl.volume;
+              muted = videoEl.muted;
+            }
+          }}
+        ></video>
+      {/if}
+    </div>
     <div class="mini-bar">
       <button class="mini-btn" onclick={togglePlay} aria-label={playing ? '暂停' : '播放'} title={playing ? '暂停' : '播放'}>
         {#if playing}
@@ -185,7 +286,7 @@
         oninput={(e) => {
           const v = Number((e.currentTarget as HTMLInputElement).value);
           setVolume(v);
-          if (videoEl) {
+          if (!kernel.native && videoEl) {
             videoEl.volume = volume;
             videoEl.muted = muted;
           }
@@ -225,10 +326,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .mini-video {
+  /* 视频舞台：mpv 画面按此矩形的比例内缩；浏览器回退时 <video> 撑满。 */
+  .mini-stage {
     flex: 1;
     min-height: 0;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mini-video {
     width: 100%;
+    height: 100%;
     object-fit: contain;
     background: #000;
     cursor: pointer;

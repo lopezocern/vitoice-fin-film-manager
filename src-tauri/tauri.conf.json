@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "vitoice",
-  "version": "3.0.1",
+  "version": "3.0.4",
   "identifier": "com.vitoice.app",
   "build": {
     "frontendDist": "../frontend/build",
@@ -10,23 +10,6 @@
     "beforeBuildCommand": "cd ../frontend && npm run build"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "vitoice",
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,AudioServiceOutOfProcess",
-        "width": 1440,
-        "height": 900,
-        "minWidth": 1024,
-        "minHeight": 680,
-        "resizable": true,
-        "fullscreen": false,
-        "center": true,
-        "decorations": false,
-        "backgroundColor": "#000000",
-        "visible": false
-      }
-    ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:41011; media-src 'self' blob: mediastream: data: http://127.0.0.1:41011; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:41011 ipc: http://ipc.localhost; script-src 'self' https://cdn.jsdelivr.net",
       "devCsp": "default-src 'self'; img-src 'self' data: blob: tauri: asset: http://127.0.0.1:8765; media-src 'self' blob: mediastream: data: http://127.0.0.1:8765; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' http://127.0.0.1:8765 ipc: http://ipc.localhost ws://127.0.0.1:5173; script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net"
@@ -35,13 +18,31 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": ["resources/backend"],
+    "resources": {
+      "resources/backend": "resources/backend",
+      "lib/libmpv-wrapper.dll": "libmpv-wrapper.dll",
+      "lib/libmpv-2.dll": "libmpv-2.dll"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "vitoice",
+    "copyright": "Copyright © 2026 vitoice. All rights reserved.",
+    "shortDescription": "vitoice 桌面媒体素材管理应用",
+    "windows": {
+      "nsis": {
+        "template": "nsis/installer.nsi",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "icons/header.bmp",
+        "uninstallerHeaderImage": "icons/header.bmp",
+        "sidebarImage": "icons/sidebar.bmp",
+        "languages": ["SimpChinese", "English"]
+      }
+    }
   }
 }

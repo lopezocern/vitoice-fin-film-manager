@@ -5,6 +5,7 @@
   "windows": ["main", "mini"],
   "permissions": [
     "core:default",
+    "libmpv:default",
     "core:webview:allow-create-webview-window",
     "core:webview:allow-webview-close",
     "core:window:allow-set-always-on-top",

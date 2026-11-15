@@ -75,18 +75,24 @@
       ? `${BASE_URL}/media/${mediaId}/screenshot?t=${previewRoundedTime}`
       : ''
   );
-  // 截图端点是否已失败（标记后不再重试，直接用缩略图）
-  let screenshotFailed = $state(false);
+  // 截图端点最近一次失败的时间戳（0 = 未失败）。
+  // 用「冷却窗口」而非永久标记：抽帧繁忙时的一次瞬时失败不该让整支视频的
+  // hover 预览从此消失（缩略图缺失时甚至完全空白），冷却结束会自动重试。
+  let screenshotFailedAt = $state(0);
+  const SCREENSHOT_RETRY_MS = 4000;
   // 缩略图是否也失败（标记后不再显示图片）
   let thumbnailFailed = $state(false);
   // 实际加载的图片 URL（只有预加载完成后才会更新）
   let imgSrc = $state('');
+  // 当前 imgSrc 是否来自截图端点（渲染失败时决定冷却重试还是彻底放弃）
+  let imgIsScreenshot = $state(false);
 
   // 切换媒体时重置失败标记，让新媒体重新尝试截图端点
   $effect(() => {
     mediaId;
-    screenshotFailed = false;
+    screenshotFailedAt = 0;
     thumbnailFailed = false;
+    imgIsScreenshot = false;
   });
 
   // 防抖+预加载：URL 变化时不会立即更新 imgSrc
@@ -103,8 +109,9 @@
       return;
     }
 
-    // 截图端点已失败时，直接用缩略图
-    const targetUrl = screenshotFailed ? thumbnailUrl : url;
+    // 截图端点刚失败过 → 冷却期内退回缩略图，冷却结束后恢复尝试截图
+    const usingScreenshot = Date.now() - screenshotFailedAt >= SCREENSHOT_RETRY_MS;
+    const targetUrl = usingScreenshot ? url : thumbnailUrl;
     if (!targetUrl) {
       imgSrc = '';
       return;
@@ -124,13 +131,19 @@
       preloader.onload = () => {
         if (cancelled) return;
         imgSrc = targetUrl;
+        imgIsScreenshot = usingScreenshot;
       };
       preloader.onerror = () => {
         if (cancelled) return;
-        onPreviewError();
+        if (usingScreenshot) {
+          // 截图瞬时失败（后端抽帧繁忙/超时）：进入冷却，稍后自动重试
+          screenshotFailedAt = Date.now();
+        } else {
+          thumbnailFailed = true;
+        }
       };
       preloader.src = targetUrl;
-    }, 120);
+    }, 60);
 
     // 清理函数：取消未完成的防抖/预加载
     return () => {
@@ -140,23 +153,33 @@
   });
 
   function onPreviewError(): void {
-    if (!screenshotFailed) {
-      // 截图端点不可用，切换到缩略图
-      screenshotFailed = true;
+    // <img> 已预加载成功却仍渲染失败（例如缓存被清）：截图则进入冷却重试，
+    // 缩略图则彻底放弃。
+    if (imgIsScreenshot) {
+      screenshotFailedAt = Date.now();
     } else {
-      // 缩略图也不可用，放弃图片预览
       thumbnailFailed = true;
     }
   }
 
-  // Tooltip 水平位置：钳制在进度条范围内，防止边缘溢出
-  const tooltipLeft = $derived.by(() => {
-    if (hoverX === null) return 0;
-    if (!trackEl) return hoverX;
-    const w = trackEl.clientWidth;
-    const half = mediaId ? 84 : 30;
+  // Tooltip 水平位置 + 预览图宽度：钳制在进度条范围内，防止边缘溢出。
+  // 预览图默认 320px；进度条比预览图还窄时（小窗口/窄容器）收缩到可用宽度，
+  // 否则靠边时会被容器裁掉、看起来像"被压扁"。
+  // 注意 clientWidth 不是响应式值——依赖 hoverX 让每次指针移动都重算。
+  const tooltipLayout = $derived.by(() => {
+    if (hoverX === null) return { left: 0, width: 320 };
+    if (!trackEl) return { left: hoverX, width: 320 };
+    const w = trackEl.clientWidth || 1;
+    if (!mediaId) {
+      // 无预览图：只有时间文字，窄条即可
+      const margin = Math.min(30, Math.max(4, w / 2 - 4));
+      return { left: Math.max(margin, Math.min(w - margin, hoverX)), width: 0 };
+    }
+    const width = Math.max(120, Math.min(320, w - 8));
+    // 半宽 + 余量，保证预览图完整落在进度条范围内
+    const half = width / 2 + 4;
     const margin = Math.min(half, Math.max(4, w / 2 - 4));
-    return Math.max(margin, Math.min(w - margin, hoverX));
+    return { left: Math.max(margin, Math.min(w - margin, hoverX)), width };
   });
 
   // F4 fix: NaN duration (metadata not loaded yet) must be treated as
@@ -270,7 +293,7 @@
 
   <!-- Hover 时间提示 + 缩略图预览 -->
   {#if hoverTime !== null && hoverX !== null}
-    <div class="tooltip" style={`left:${tooltipLeft}px`}>
+    <div class="tooltip" style={`left:${tooltipLayout.left}px; --preview-w:${tooltipLayout.width}px`}>
       {#if imgSrc}
         <img class="preview-img" src={imgSrc} onerror={onPreviewError} alt="" draggable="false" />
       {/if}
@@ -383,6 +406,10 @@
     position: absolute;
     bottom: calc(100% + 8px);
     transform: translateX(-50%);
+    /* 关键：绝对定位元素的宽度默认会被"包含块宽度 - left"截断，
+       tooltip 越靠右可用宽度越小，320px 的预览图会被裁掉/压扁。
+       width: max-content 让宽度只由内容决定，水平位置交给 tooltipLeft 钳制。 */
+    width: max-content;
     background: rgba(0, 0, 0, 0.88);
     color: #fff;
     border-radius: var(--radius);
@@ -395,8 +422,13 @@
   }
   .preview-img {
     display: block;
-    width: 160px;
-    height: 90px;
+    /* 宽度由 --preview-w 决定（进度条过窄时收缩），保持 16:9 不被压扁 */
+    width: var(--preview-w, 320px);
+    aspect-ratio: 16 / 9;
+    height: auto;
+    /* 绝对定位 + flex 子项都可能触发收缩，显式禁止，保证不被压扁 */
+    flex: none;
+    max-width: none;
     object-fit: cover;
     background: rgba(255, 255, 255, 0.06);
     pointer-events: none;
