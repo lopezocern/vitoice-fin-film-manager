@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vitoice · 管理页信息架构重构 · 设计评审</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --surface-2: #f2f4f8;
+    --ink: #14171c;
+    --ink-2: #454c58;
+    --ink-3: #77808f;
+    --line: #e3e7ee;
+    --line-strong: #cfd6e2;
+    --accent: #2f5fe0;
+    --accent-soft: #eaefff;
+    --danger: #c8384a;
+    --danger-soft: #fdeef0;
+    --warn: #b8720b;
+    --warn-soft: #fdf4e3;
+    --ok: #17795e;
+    --ok-soft: #e6f5f0;
+    --code-bg: #f4f6fa;
+    --shadow: 0 1px 2px rgba(16,24,40,.05), 0 8px 24px -12px rgba(16,24,40,.18);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1116;
+      --surface: #151a21;
+      --surface-2: #1b212a;
+      --ink: #e9edf4;
+      --ink-2: #b3bcc9;
+      --ink-3: #7d8798;
+      --line: #242c37;
+      --line-strong: #33404f;
+      --accent: #7c9dff;
+      --accent-soft: #1a2440;
+      --danger: #ff7f8f;
+      --danger-soft: #2a1a1e;
+      --warn: #e6b062;
+      --warn-soft: #2a2318;
+      --ok: #58d0ac;
+      --ok-soft: #12261f;
+      --code-bg: #11161d;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+    }
+  }
+  html[data-theme="dark"] {
+    --bg: #0e1116;
+    --surface: #151a21;
+    --surface-2: #1b212a;
+    --ink: #e9edf4;
+    --ink-2: #b3bcc9;
+    --ink-3: #7d8798;
+    --line: #242c37;
+    --line-strong: #33404f;
+    --accent: #7c9dff;
+    --accent-soft: #1a2440;
+    --danger: #ff7f8f;
+    --danger-soft: #2a1a1e;
+    --warn: #e6b062;
+    --warn-soft: #2a2318;
+    --ok: #58d0ac;
+    --ok-soft: #12261f;
+    --code-bg: #11161d;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.72 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC",
+          "Hiragino Sans GB", "Source Han Sans SC", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Cascadia Mono", monospace;
+  }
+
+  /* ---------- layout ---------- */
+  .page { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 40px;
+          max-width: 1240px; margin: 0 auto; padding: 0 32px 120px; }
+  @media (max-width: 940px) {
+    .page { grid-template-columns: 1fr; gap: 0; padding: 0 18px 80px; }
+    nav.toc { display: none; }
+  }
+
+  /* ---------- masthead ---------- */
+  header.masthead {
+    grid-column: 1 / -1;
+    padding: 56px 0 34px;
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 12px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ink-3); margin-bottom: 16px;
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line-strong); background: var(--surface);
+    font-size: 11.5px; letter-spacing: 0; text-transform: none; color: var(--ink-2);
+  }
+  .pill.live { border-color: color-mix(in srgb, var(--warn) 40%, transparent); color: var(--warn); background: var(--warn-soft); }
+  .pill.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); color: var(--ok); background: var(--ok-soft); }
+  h1 {
+    font-size: clamp(28px, 4.2vw, 44px); line-height: 1.16; margin: 0 0 14px;
+    letter-spacing: -.02em; font-weight: 680;
+  }
+  .lede { font-size: 17px; color: var(--ink-2); max-width: 74ch; margin: 0; }
+  .masthead-meta {
+    display: flex; gap: 26px; flex-wrap: wrap; margin-top: 24px;
+    font-size: 13px; color: var(--ink-3);
+  }
+  .masthead-meta b { color: var(--ink-2); font-weight: 600; }
+
+  /* ---------- toc ---------- */
+  nav.toc { position: sticky; top: 28px; align-self: start; padding-top: 44px; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
+  nav.toc li { margin: 0; }
+  nav.toc a {
+    display: block; padding: 5px 0 5px 14px; margin-left: -1px;
+    border-left: 2px solid transparent; color: var(--ink-3);
+    font-size: 13px; transition: color .15s, border-color .15s;
+  }
+  nav.toc a:hover { color: var(--ink); text-decoration: none; }
+  nav.toc a.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+
+  /* ---------- sections ---------- */
+  main { min-width: 0; padding-top: 44px; }
+  section { scroll-margin-top: 24px; margin-bottom: 68px; }
+  h2 {
+    font-size: 23px; letter-spacing: -.01em; margin: 0 0 6px; font-weight: 660;
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .num {
+    font-size: 12px; font-variant-numeric: tabular-nums; color: var(--accent);
+    background: var(--accent-soft); padding: 2px 8px; border-radius: 6px;
+    font-weight: 700; letter-spacing: .04em;
+  }
+  h3 { font-size: 16px; margin: 30px 0 10px; font-weight: 660; }
+  .sub { color: var(--ink-3); font-size: 14px; margin: 0 0 22px; }
+
+  /* ---------- cards ---------- */
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 22px 24px; box-shadow: var(--shadow);
+  }
+  .grid { display: grid; gap: 16px; }
+  .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 860px) { .g2, .g3, .g4 { grid-template-columns: 1fr; } }
+
+  /* ---------- callout ---------- */
+  .callout {
+    display: grid; grid-template-columns: 3px 1fr; gap: 18px;
+    border-radius: 12px; padding: 20px 22px; background: var(--surface);
+    border: 1px solid var(--line); box-shadow: var(--shadow);
+  }
+  .callout::before { content: ""; border-radius: 3px; background: var(--accent); }
+  .callout.warn::before { background: var(--warn); }
+  .callout.danger::before { background: var(--danger); }
+  .callout.ok::before { background: var(--ok); }
+  .callout h4 { margin: 0 0 6px; font-size: 14px; letter-spacing: .01em; }
+  .callout p { margin: 0; color: var(--ink-2); font-size: 14.5px; }
+  .callout p + p { margin-top: 8px; }
+
+  /* ---------- stats ---------- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 26px; }
+  @media (max-width: 860px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 18px 16px; box-shadow: var(--shadow);
+  }
+  .stat .k { font-size: 12px; color: var(--ink-3); margin-bottom: 8px; }
+  .stat .v {
+    font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .v small { font-size: 14px; font-weight: 600; color: var(--ink-3); margin-left: 2px; }
+  .stat .d { font-size: 12.5px; color: var(--ink-3); margin-top: 9px; }
+  .stat.hot .v { color: var(--danger); }
+  .stat.cool .v { color: var(--ok); }
+
+  /* ---------- tables ---------- */
+  .tw { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--surface-2); font-weight: 640; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td code { font-size: 12.5px; background: var(--code-bg); padding: 1.5px 5px; border-radius: 5px; }
+  .tag {
+    display: inline-block; padding: 1px 7px; border-radius: 5px; font-size: 11.5px;
+    font-weight: 620; white-space: nowrap;
+  }
+  .tag.danger { background: var(--danger-soft); color: var(--danger); }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); }
+  .tag.ok { background: var(--ok-soft); color: var(--ok); }
+  .tag.mute { background: var(--surface-2); color: var(--ink-3); }
+
+  /* ---------- code ---------- */
+  pre {
+    margin: 0; background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px 20px; overflow-x: auto;
+    font-size: 12.5px; line-height: 1.65;
+  }
+  pre .c { color: var(--ink-3); }
+  pre .kw { color: var(--accent); font-weight: 600; }
+  pre .s { color: var(--ok); }
+  pre .f { color: var(--warn); }
+  .filebar {
+    display: flex; align-items: center; gap: 8px; margin-bottom: -1px;
+    padding: 8px 14px; border: 1px solid var(--line); border-bottom: none;
+    border-radius: 12px 12px 0 0; background: var(--surface-2);
+    font-size: 12px; color: var(--ink-3);
+  }
+  .filebar + pre { border-radius: 0 0 12px 12px; }
+  .filebar b { color: var(--ink-2); font-weight: 600; }
+
+  /* ---------- nav tree comparison ---------- */
+  .navcmp { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .navcmp { grid-template-columns: 1fr; } }
+  .navpanel { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; box-shadow: var(--shadow); }
+  .navpanel header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 15px; background: var(--surface-2); border-bottom: 1px solid var(--line);
+    font-size: 12.5px; font-weight: 640; color: var(--ink-2);
+  }
+  .navpanel header .n { font-variant-numeric: tabular-nums; color: var(--ink-3); font-weight: 500; }
+  .navpanel .body { padding: 12px 10px; }
+  .navgroup { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding: 10px 8px 4px; }
+  .navitem {
+    display: flex; align-items: center; gap: 9px; padding: 6px 9px; border-radius: 7px;
+    font-size: 13.5px; color: var(--ink-2);
+  }
+  .navitem .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); flex: none; }
+  .navitem.keep { color: var(--ink); }
+  .navitem.keep .dot { background: var(--ok); }
+  .navitem.merge { color: var(--ink-3); text-decoration: line-through; text-decoration-color: var(--danger); }
+  .navitem.merge .dot { background: var(--danger); }
+  .navitem.merge em {
+    font-style: normal; text-decoration: none; margin-left: auto; font-size: 11.5px;
+    color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px;
+  }
+  .navitem.new { color: var(--ink); font-weight: 560; }
+  .navitem.new .dot { background: var(--accent); }
+  .navitem .cnt { margin-left: auto; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+  /* ---------- request waterfall ---------- */
+  .waterfall { display: flex; flex-wrap: wrap; gap: 4px; margin: 14px 0 6px; }
+  .wf {
+    width: 13px; height: 26px; border-radius: 3px;
+    background: color-mix(in srgb, var(--danger) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+    animation: pop .5s backwards;
+  }
+  .wf.one {
+    width: 82px; background: color-mix(in srgb, var(--ok) 22%, transparent);
+    border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+  }
+  @keyframes pop { from { transform: scaleY(.2); opacity: 0; } to { transform: none; opacity: 1; } }
+  .wflegend { display: flex; gap: 20px; font-size: 12.5px; color: var(--ink-3); flex-wrap: wrap; }
+
+  /* ---------- bars ---------- */
+  .bars { display: grid; gap: 18px; }
+  .barrow { display: grid; grid-template-columns: 150px 1fr 112px; gap: 16px; align-items: center; font-size: 13px; }
+  @media (max-width: 700px) { .barrow { grid-template-columns: 104px 1fr 92px; } }
+  .barrow .lab { color: var(--ink-2); }
+  .dual { display: grid; gap: 5px; }
+  .track { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+  .fill { height: 100%; border-radius: 99px; }
+  .fill.before { background: color-mix(in srgb, var(--danger) 55%, transparent); }
+  .fill.after { background: color-mix(in srgb, var(--ok) 78%, transparent); }
+  .barrow .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 12.5px; font-weight: 600; }
+  .barrow .val s { color: var(--danger); text-decoration: none; font-weight: 600; }
+  .barrow .val b { color: var(--ok); font-weight: 700; }
+
+  /* ---------- pr timeline ---------- */
+  .prs { display: grid; gap: 0; }
+  .pr {
+    display: grid; grid-template-columns: 74px 1fr; gap: 18px;
+    padding: 17px 0; border-bottom: 1px dashed var(--line);
+  }
+  .pr:last-child { border-bottom: none; }
+  .pr .id {
+    font: 600 12px/1.5 ui-monospace, monospace; color: var(--accent);
+    background: var(--accent-soft); border-radius: 7px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pr .t { font-weight: 620; margin-bottom: 4px; }
+  .pr .d { color: var(--ink-3); font-size: 13.5px; }
+  .pr .flags { display: flex; gap: 7px; margin-top: 9px; flex-wrap: wrap; }
+
+  /* ---------- decision cards ---------- */
+  .dec { position: relative; padding-left: 46px; }
+  .dec .q {
+    position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 9px;
+    background: var(--warn-soft); color: var(--warn); font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dec h4 { margin: 2px 0 6px; font-size: 14.5px; }
+  .dec p { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+  .dec .rec {
+    margin-top: 10px; font-size: 13px; color: var(--ok);
+    background: var(--ok-soft); border-radius: 8px; padding: 8px 11px;
+  }
+  .dec .rec b { font-weight: 650; }
+
+  /* ---------- footer ---------- */
+  footer.end {
+    grid-column: 1 / -1; border-top: 1px solid var(--line); margin-top: 20px;
+    padding: 26px 0 0; font-size: 12.5px; color: var(--ink-3);
+    display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  }
+
+  .theme-toggle {
+    position: fixed; right: 20px; bottom: 20px; z-index: 20;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2);
+    border-radius: 999px; padding: 9px 15px; font-size: 12.5px; cursor: pointer;
+    box-shadow: var(--shadow); font-family: inherit;
+  }
+  .theme-toggle:hover { color: var(--ink); border-color: var(--accent); }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-3); margin-top: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+  @media print {
+    nav.toc, .theme-toggle { display: none; }
+    .page { grid-template-columns: 1fr; max-width: none; }
+    body { background: #fff; }
+    section { break-inside: avoid-page; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span class="pill">vitoice 3.0.1</span>
+      <span class="pill ok">PR1–PR6 已实施 · 2026-10-22</span>
+      <span class="pill">2026-10-22</span>
+    </div>
+    <h1>管理页信息架构重构</h1>
+    <p class="lede">
+      管理页不是功能太多，而是「同一批媒体数据的读取 · 筛选 · 展示 · 批量操作」这条链
+      被实现了 <b>4 套</b>。本设计先在后端把「什么算一个问题」定义一次，再合并前端的列表层，
+      最后把导航从 10 个 section 收敛到 6 个——能力不减，实现减两套。
+    </p>
+    <div class="masthead-meta">
+      <div>基线提交 <b>1189a80</b>（+ 10-21 未提交工作区改动）</div>
+      <div>技术栈 <b>Svelte 5 runes · SvelteKit · FastAPI</b></div>
+      <div>详细设计 <b>doc/管理页信息架构重构-详细设计-v2.md</b></div>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="目录">
+    <ol>
+      <li><a href="#s1">1 · 结论与量化</a></li>
+      <li><a href="#s2">2 · 四套实现</a></li>
+      <li><a href="#s3">3 · 根因：缺一个谓词</a></li>
+      <li><a href="#s4">4 · 冲突证据表</a></li>
+      <li><a href="#s5">5 · 目标导航</a></li>
+      <li><a href="#s6">6 · 后端契约</a></li>
+      <li><a href="#s7">7 · Saved View</a></li>
+      <li><a href="#s8">8 · 前端分层</a></li>
+      <li><a href="#s9">9 · URL 兼容</a></li>
+      <li><a href="#s10">10 · 六个 PR</a></li>
+      <li><a href="#s11">11 · 验收指标</a></li>
+      <li><a href="#s12">12 · 风险</a></li>
+      <li><a href="#s13">13 · 决策已定</a></li>
+      <li><a href="#s14">14 · 有效性评估</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ 1 ============ -->
+    <section id="s1">
+      <h2><span class="num">01</span>结论与量化</h2>
+      <p class="sub">先承认一件事：功能清单没有问题，问题全在实现层。</p>
+
+      <div class="stats">
+        <div class="stat hot">
+          <div class="k">管理页前端代码</div>
+          <div class="v">9338<small>行</small></div>
+          <div class="d">其中约一半在重做媒体页已有的东西</div>
+        </div>
+        <div class="stat hot">
+          <div class="k">媒体集合视图实现</div>
+          <div class="v">4<small>套</small></div>
+          <div class="d">同一改动需要写 4 遍</div>
+        </div>
+        <div class="stat hot">
+          <div class="k">问题视图首屏请求</div>
+          <div class="v">5<small>次</small></div>
+          <div class="d">874 条实测；超 4000 条会静默截断</div>
+        </div>
+        <div class="stat cool">
+          <div class="k">导航 section</div>
+          <div class="v">10 → 5</div>
+          <div class="d">概览页不保留（决策 1）</div>
+        </div>
+      </div>
+
+      <div class="callout warn">
+        <div>
+          <h4>一句话判断</h4>
+          <p>
+            冗余不在「功能多」，而在「一条链路四份实现」：媒体数据的
+            <b>读取策略</b>有三种、<b>状态词表</b>有三份、<b>列表视图</b>有四个，
+            而侧边栏把这同一份数据切成了 10 个入口。
+          </p>
+          <p>
+            好消息是根因只有一个，改一个地方就能同时解决四套实现——见第 3 节。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section id="s2">
+      <h2><span class="num">02</span>同一个视图，四套实现</h2>
+      <p class="sub">按代码量从大到小。</p>
+
+      <div class="grid g2">
+        <div class="card">
+          <h3 style="margin-top:0">① 管理页主表 · 3723 行</h3>
+          <p style="margin:0 0 12px;color:var(--ink-2);font-size:14px">
+            <code>manage/MediaManageView.svelte</code>。筛选、批量、列表 / 网格、分页、
+            列宽调整全在这一个文件里，由 <code>FileExplorerView</code> 包一层后挂在
+            <code>?section=files</code>。
+          </p>
+          <div class="legend"><span><i style="background:var(--danger)"></i>服务端分页 + 客户端二次过滤</span></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">② 概览自带表格 · 45 行</h3>
+          <p style="margin:0 0 12px;color:var(--ink-2);font-size:14px">
+            <code>manage/OverviewView.svelte:246-280</code> 自己写了一个 5 列表格，
+            带自己的 <code>assetFilter</code> 与 <code>assetStatus()</code>。
+          </p>
+          <div class="legend"><span><i style="background:var(--danger)"></i>第三套状态判定</span></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">③ 问题中心 / 元数据 · 413 行</h3>
+          <p style="margin:0 0 12px;color:var(--ink-2);font-size:14px">
+            <code>manage/ManageModuleView.svelte</code> 循环拉 <code>page_size=200</code> × 最多 20 页
+            （874 条时 = 5 次），再在内存里 <code>filter</code> 出「缺失 / 未匹配 / 无标签」。
+          </p>
+          <div class="legend"><span><i style="background:var(--danger)"></i>客户端全量过滤</span></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">④ 媒体页 · 无限滚动</h3>
+          <p style="margin:0 0 12px;color:var(--ink-2);font-size:14px">
+            <code>media/+page.svelte</code> + <code>UnifiedWall / PosterWall / ListView / TimelineView</code>，
+            已经有服务端筛选与分页。
+          </p>
+          <div class="legend"><span><i style="background:var(--ok)"></i>最完整的一套，应作为地基</span></div>
+        </div>
+      </div>
+
+      <h3>三套加载策略</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>视图</th><th>策略</th><th>代价</th></tr></thead>
+          <tbody>
+            <tr><td>媒体页</td><td>服务端分页 + 无限滚动</td><td class="tag ok">正常</td></tr>
+            <tr><td>管理页主表</td><td>服务端分页</td><td class="tag ok">正常</td></tr>
+            <tr><td>问题中心 / 元数据</td><td>循环 <code>page_size=200</code> × 最多 20 页后在内存过滤</td><td class="tag danger">874 条 → 5 请求 / 3.42 MB</td></tr>
+            <tr><td>同上，媒体 &gt; 4,000 条</td><td>循环在第 20 页终止</td><td class="tag danger">静默截断：少算</td></tr>
+            <tr><td>管理页状态筛选</td><td>强拉 200 条再客户端过滤，<code>total = items.length</code></td><td class="tag danger">分页失真</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="waterfall" aria-hidden="true">
+        <div class="wf"></div><div class="wf"></div><div class="wf"></div>
+        <div class="wf"></div><div class="wf"></div>
+        <div class="wf one" style="margin-left:10px"></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--danger);opacity:.5"></i>现状：874 条 → 5 次分页拉取（3.42 MB）</span>
+        <span><i style="background:var(--ok);opacity:.5"></i>目标：1 次分页查询（≈205 KB）</span>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section id="s3">
+      <h2><span class="num">03</span>根因：缺一个谓词</h2>
+      <p class="sub">所有重复都从这里长出来。</p>
+
+      <div class="callout danger">
+        <div>
+          <h4><code>GET /media</code> 有 25 个筛选参数，唯独没有「海报缺失 / 元数据缺失 / 无标签」</h4>
+          <p>
+            <code>backend/app/api/media.py:344-368</code> 支持 library / dir / type / source /
+            file_missing / rating / duration / resolution / year / genre / country / search / sort…
+            但「这个媒体有没有封面」「元数据齐不齐」「有没有标签」三个状态判断不在服务端。
+          </p>
+          <p>
+            于是前端只能自己算：为了「算」就得先把数据「拿全」，为了让「拿全」便宜，就有了
+            循环拉 20 页；为了「算得不一样也不崩」，就有了三份状态词表。
+          </p>
+        </div>
+      </div>
+
+      <h3>而口径已经开始漂移</h3>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>字段</th><th>服务端 <code>stats.py</code></th><th>前端客户端判定</th><th>结果</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>文件缺失</td>
+              <td>排除剧集 + 排除纯网络媒体</td>
+              <td><code>item.file_missing</code>（无排除）</td>
+              <td><span class="tag danger">数量对不上</span></td>
+            </tr>
+            <tr>
+              <td>元数据待处理</td>
+              <td>排除剧集，<b>包含</b>网络媒体</td>
+              <td>同口径</td>
+              <td><span class="tag ok">一致</span></td>
+            </tr>
+            <tr>
+              <td>缺封面</td>
+              <td><code>poster_path IS NULL AND thumbnail_path IS NULL</code></td>
+              <td><code>!item.poster</code></td>
+              <td><span class="tag warn">近似</span></td>
+            </tr>
+            <tr>
+              <td>存在问题</td>
+              <td><b>不存在</b>该字段</td>
+              <td>侧边栏用三项<b>求和</b></td>
+              <td><span class="tag danger">重复计数</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-3);margin-top:12px">
+        「求和」的问题：一个媒体同时缺海报与缺元数据，会被数两次，于是侧边栏徽标永远大于实际待处理项。
+      </p>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section id="s4">
+      <h2><span class="num">04</span>冲突证据表</h2>
+      <p class="sub">每条都可复现，均带行号。</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>#</th><th>问题</th><th>证据</th><th>后果</th></tr></thead>
+          <tbody>
+            <tr><td>D1</td><td>同一集合视图实现 4 次</td><td><code>MediaManageView</code> 3723 · <code>OverviewView:246-280</code> · <code>ManageModuleView</code> · <code>media/+page.svelte</code></td><td>改动 ×4</td></tr>
+            <tr><td>D2</td><td>三套加载策略</td><td><code>MediaManageView:591</code> / <code>media/+page.svelte:653</code> / <code>ManageModuleView:86-98</code></td><td>首屏 21 请求</td></tr>
+            <tr><td>D3</td><td>状态词表三份</td><td><code>manage/filters.ts:11</code>（8 值）· <code>MediaManageView:524-533</code>（8 值）· <code>assetFilter</code>（4 值）</td><td>语义漂移</td></tr>
+            <tr><td>D4</td><td>状态筛选分页失真</td><td><code>MediaManageView:598-605</code>：强拉 200 条且 <code>total = items.length</code></td><td>翻页失效</td></tr>
+            <tr><td>D5</td><td><code>asset=1</code> 是死参数</td><td>发：<code>OverviewView:147,180,247,255</code>、<code>ManageModuleView:241,267</code>；收：只读 <code>lib/dir/source/status</code></td><td>6 个按钮点了不筛</td></tr>
+            <tr><td>D6</td><td>徽标求和重复计数</td><td><code>ManageSidebar:61</code> <code>issueCount = missing + noPoster + noMetadata</code></td><td>数字偏大</td></tr>
+            <tr><td>D7</td><td>同一数字打两次</td><td><code>ManageSidebar:139</code> 与 <code>:263</code> 都是 <code>navCounts.missing</code></td><td>视觉噪声</td></tr>
+            <tr><td>D8</td><td>死变量</td><td><code>ManageSidebar:62</code> <code>problemCount</code> 定义后从未渲染</td><td>—</td></tr>
+            <tr><td>D9</td><td>媒体页自己也双重过滤</td><td>分辨率/时长已下沉（<code>media/+page.svelte:377-390</code>），但仍保留客户端再筛（<code>:404+</code>）</td><td>冗余计算</td></tr>
+            <tr><td>D10</td><td>死契约</td><td><code>schemas/media.py:266</code> <code>MediaFilter</code> 从未被使用</td><td>契约幻觉</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section id="s5">
+      <h2><span class="num">05</span>目标导航：10 → 6</h2>
+      <p class="sub">「问题」从导航条目降级为视图参数；任务与历史合并为一个页面的两个 tab。</p>
+
+      <div class="navcmp">
+        <div class="navpanel">
+          <header><span>现状</span><span class="n">10 section + 4 别名</span></header>
+          <div class="body">
+            <div class="navgroup">工作区</div>
+            <div class="navitem merge"><span class="dot"></span>资产概览<em>删除</em></div>
+            <div class="navitem merge"><span class="dot"></span>媒体管理<em>→ 资产</em></div>
+            <div class="navitem merge"><span class="dot"></span>问题中心<em>→ 视图</em></div>
+            <div class="navitem merge"><span class="dot"></span>元数据与刮削<em>→ 视图</em></div>
+            <div class="navitem keep"><span class="dot"></span>标签治理<span class="cnt">tags</span></div>
+            <div class="navitem keep"><span class="dot"></span>回收站<span class="cnt">trash</span></div>
+            <div class="navgroup">运行状态</div>
+            <div class="navitem merge"><span class="dot"></span>任务队列<em>→ 运行</em></div>
+            <div class="navitem merge"><span class="dot"></span>操作记录<em>→ 运行</em></div>
+            <div class="navgroup">资源库</div>
+            <div class="navitem keep"><span class="dot"></span>资源库状态<span class="cnt">libraries</span></div>
+            <div class="navgroup">仅 files 时显示</div>
+            <div class="navitem merge"><span class="dot"></span>来源：全部 / 本地 / 网络 / 文件丢失<em>→ 视图</em></div>
+          </div>
+        </div>
+
+        <div class="navpanel">
+          <header><span>目标</span><span class="n">5 section</span></header>
+          <div class="body">
+            <div class="navgroup">资产</div>
+            <div class="navitem new"><span class="dot"></span>资产工作台<span class="cnt">assets</span></div>
+            <div class="navitem" style="padding-left:26px;font-size:12.5px;color:var(--ink-3)">↳ 顶部摘要条（原概览的数字）</div>
+            <div class="navgroup" style="padding-left:26px">↳ 视图</div>
+            <div class="navitem"><span class="dot"></span>全部资产 · 存在问题 · 文件缺失</div>
+            <div class="navitem"><span class="dot"></span>缺封面 · 元数据待处理 · 已忽略 · 无标签</div>
+            <div class="navgroup">治理</div>
+            <div class="navitem keep"><span class="dot"></span>标签治理<span class="cnt">tags</span></div>
+            <div class="navitem keep"><span class="dot"></span>回收站<span class="cnt">trash</span></div>
+            <div class="navgroup">运行</div>
+            <div class="navitem new"><span class="dot"></span>运行<span class="cnt">runs · 任务/历史</span></div>
+            <div class="navgroup">资源库</div>
+            <div class="navitem keep"><span class="dot"></span>资源库状态<span class="cnt">libraries · 含库健康</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><i style="background:var(--ok)"></i>保留</span>
+        <span><i style="background:var(--danger)"></i>折叠</span>
+        <span><i style="background:var(--accent)"></i>新增</span>
+      </div>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section id="s6">
+      <h2><span class="num">06</span>后端契约：把谓词定义一次</h2>
+      <p class="sub">这是整个重构的地基。新增参数全部可选，缺省时行为与现在完全一致。</p>
+
+      <h3>新增查询参数</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>参数</th><th>类型</th><th>SQL 语义</th></tr></thead>
+          <tbody>
+            <tr><td><code>has_poster</code></td><td><code>bool</code></td><td><code>false</code> → <code>poster_path IS NULL AND thumbnail_path IS NULL</code></td></tr>
+            <tr><td><code>metadata_status</code></td><td><code>missing | ignored | complete</code></td><td><code>missing</code> → <code>metadata_ignored=false AND (poster IS NULL OR scrape_data IS NULL)</code></td></tr>
+            <tr><td><code>untagged</code></td><td><code>bool</code></td><td><code>NOT EXISTS (SELECT 1 FROM video_tags WHERE media_id = media.id)</code></td></tr>
+            <tr><td><code>exclude_network</code></td><td><code>bool</code></td><td><code>media_type != 'network'</code></td></tr>
+            <tr><td><code>problem</code></td><td><code>bool</code></td><td>三个问题的<b>并集</b>（不是求和）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>谓词单一真相源</h3>
+      <div class="filebar"><b>backend/app/services/media_query.py</b><span>· 新建</span></div>
+<pre><code><span class="c">"""Shared predicates for media "issue" queries.
+
+Single source of truth: `stats` counts and `/media` filters must never drift.
+"""</span>
+<span class="kw">from</span> sqlalchemy <span class="kw">import</span> and_, exists, or_, select
+
+<span class="kw">from</span> app.models.enums <span class="kw">import</span> MediaType
+<span class="kw">from</span> app.models.media <span class="kw">import</span> Media, VideoTag
+
+
+<span class="kw">def</span> <span class="f">issue_scope</span>() -&gt; list:
+    <span class="c">"""Rows that are eligible to be reported as an issue."""</span>
+    <span class="kw">return</span> [
+        Media.is_deleted == <span class="kw">False</span>,              <span class="c"># 软删除不算</span>
+        Media.series_id.is_(<span class="kw">None</span>),               <span class="c"># 剧集继承父系列的海报/元数据</span>
+        Media.media_type != MediaType.NETWORK,      <span class="c"># 纯网络媒体天生无本地文件</span>
+    ]
+
+
+<span class="kw">def</span> <span class="f">pred_missing</span>():
+    <span class="kw">return</span> Media.file_missing.is_(<span class="kw">True</span>)
+
+
+<span class="kw">def</span> <span class="f">pred_no_poster</span>():
+    <span class="kw">return</span> and_(Media.poster_path.is_(<span class="kw">None</span>), Media.thumbnail_path.is_(<span class="kw">None</span>))
+
+
+<span class="kw">def</span> <span class="f">pred_metadata_missing</span>():
+    <span class="kw">return</span> and_(
+        Media.metadata_ignored == <span class="kw">False</span>,
+        or_(Media.poster_path.is_(<span class="kw">None</span>), Media.scrape_data.is_(<span class="kw">None</span>)),
+    )
+
+
+<span class="kw">def</span> <span class="f">pred_untagged</span>():
+    <span class="kw">return</span> ~exists().where(VideoTag.media_id == Media.id)
+
+
+<span class="kw">def</span> <span class="f">pred_problem</span>():
+    <span class="c">"""Union, not a sum — an item missing both poster and metadata counts once."""</span>
+    <span class="kw">return</span> or_(pred_missing(), pred_no_poster(), pred_metadata_missing())</code></pre>
+
+      <h3>两边都调它</h3>
+      <div class="grid g2">
+        <div>
+          <div class="filebar"><b>api/media.py</b><span>· 插在 total count 之前</span></div>
+<pre><code><span class="kw">if</span> has_poster <span class="kw">is not</span> <span class="kw">None</span>:
+    query = query.where(
+        ~pred_no_poster() <span class="kw">if</span> has_poster <span class="kw">else</span> pred_no_poster()
+    )
+<span class="kw">if</span> metadata_status == <span class="s">"missing"</span>:
+    query = query.where(pred_metadata_missing())
+<span class="kw">elif</span> metadata_status == <span class="s">"ignored"</span>:
+    query = query.where(Media.metadata_ignored == <span class="kw">True</span>)
+<span class="kw">if</span> untagged <span class="kw">is</span> <span class="kw">True</span>:
+    query = query.where(pred_untagged())
+<span class="kw">if</span> problem <span class="kw">is</span> <span class="kw">True</span>:
+    query = query.where(pred_problem())</code></pre>
+        </div>
+        <div>
+          <div class="filebar"><b>api/stats.py</b><span>· 替换三段手写条件</span></div>
+<pre><code>scope = issue_scope()
+
+missing_count     = <span class="kw">await</span> count(pred_missing(),   *scope)
+no_poster_count   = <span class="kw">await</span> count(pred_no_poster(), *scope)
+untagged_count    = <span class="kw">await</span> count(pred_untagged(),  *scope)
+problem_count     = <span class="kw">await</span> count(pred_problem(),   *scope)
+ignored_count     = <span class="kw">await</span> count(
+    Media.metadata_ignored.is_(<span class="kw">True</span>)
+)
+
+<span class="c"># no_metadata 保持既有口径：含网络媒体、只要非剧集</span>
+no_metadata_count = <span class="kw">await</span> count(
+    Media.is_deleted == <span class="kw">False</span>,
+    Media.series_id.is_(<span class="kw">None</span>),
+    pred_metadata_missing(),
+)</code></pre>
+        </div>
+      </div>
+
+      <div class="callout ok" style="margin-top:18px">
+        <div>
+          <h4>决策 1 的必要条件：<code>GET /libraries</code> 补两个聚合 <span class="tag ok">PR1 已实施</span></h4>
+          <p>
+            更正：<code>LibraryResponse</code> <b>本来就有</b> <code>media_count</code>
+            （<code>schemas/library.py:79</code>），本文初稿写"没有"是错的。真正缺的是
+            <code>missing_count</code> 与 <code>total_size</code> —— 它们今天只由
+            <code>/stats.library_health</code> 提供给概览页；概览删除后，「库健康」只能落在
+            <code>libraries</code> 页。
+          </p>
+          <p>
+            实现仍是<b>一条 SQL</b>：现有查询上补
+            <code>sum(file_size)</code> 与 <code>sum(case((file_missing == True, 1), else_=0))</code>，
+            不引入 N+1。<code>media_count</code> 的既有语义（含软删除行）保持不变，避免改动现有库徽标。
+          </p>
+        </div>
+      </div>
+
+      <div class="callout ok" style="margin-top:18px">
+        <div>
+          <h4>护栏：计数必须等于列表</h4>
+          <p>
+            PR1 会带上 <code>tests/test_media_issue_filters.py</code>——断言每个视图的
+            <code>total</code> 等于对应 <code>stats</code> 字段。两侧一旦漂移，CI 直接红。
+            这条测试是后续所有重构的安全网。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section id="s7">
+      <h2><span class="num">07</span>Saved View：七个预设</h2>
+      <p class="sub">每个视图只是一组查询参数；排序、分页、批量操作、其余筛选维度全部共用。</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>view</th><th>中文</th><th>参数</th><th>徽标字段</th></tr></thead>
+          <tbody>
+            <tr><td><code>all</code></td><td>全部资产</td><td>—</td><td><code>media_count</code></td></tr>
+            <tr><td><code>problem</code></td><td>存在问题</td><td><code>problem=true</code> + scope</td><td><code>problem_count</code> <span class="tag ok">新</span></td></tr>
+            <tr><td><code>missing</code></td><td>文件缺失</td><td><code>file_missing=true</code> + scope</td><td><code>missing_count</code></td></tr>
+            <tr><td><code>no_poster</code></td><td>缺封面</td><td><code>has_poster=false</code> + scope</td><td><code>no_poster_count</code></td></tr>
+            <tr><td><code>metadata</code></td><td>元数据待处理</td><td><code>metadata_status=missing</code> + 非剧集</td><td><code>no_metadata_count</code></td></tr>
+            <tr><td><code>ignored</code></td><td>已忽略刮削</td><td><code>metadata_status=ignored</code></td><td><code>ignored_count</code> <span class="tag ok">已定</span></td></tr>
+            <tr><td><code>untagged</code></td><td>无标签</td><td><code>untagged=true</code> + scope</td><td><code>untagged_count</code> <span class="tag ok">新</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-3);margin-top:12px">
+        <b>scope</b> = <code>exclude_series=true&amp;exclude_network=true</code>，与 <code>issue_scope()</code> 一一对应。
+        注意 <code>rated / unrated / favorite</code> 不进 view 槽位——它们要能与视图正交叠加（「无标签 + 已评分」）。
+      </p>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section id="s8">
+      <h2><span class="num">08</span>前端分层：一套列表层</h2>
+      <p class="sub">媒体页与管理页保留为两个页面（浏览 vs 治理），但共用底层。</p>
+
+      <div class="grid g2">
+        <div>
+          <h3 style="margin-top:0">新增目录</h3>
+<pre><code>frontend/src/lib/media/
+  status.ts              <span class="c">状态判定唯一实现</span>
+  query.ts               <span class="c">MediaQueryState + buildMediaQuery()</span>
+  views.ts               <span class="c">7 个 Saved View 定义</span>
+  useMediaList.svelte.ts <span class="c">数据层 · paged / infinite</span>
+  MediaToolbar.svelte    <span class="c">筛选条（合并两套）</span>
+  MediaTable.svelte      <span class="c">表格 + 列注册 + 批量选择</span>
+  MediaGrid.svelte       <span class="c">网格卡片</span>
+  columns.ts             <span class="c">列定义</span></code></pre>
+        </div>
+        <div>
+          <h3 style="margin-top:0">关键约束</h3>
+          <div class="tw" style="box-shadow:none">
+            <table>
+              <tbody>
+                <tr><td>请求竞态</td><td>沿用现有自增 <code>reqId</code> 模式</td></tr>
+                <tr><td><code>total</code></td><td>一律取服务端值，删掉 <code>= items.length</code></td></tr>
+                <tr><td><code>$effect</code></td><td>内层 async 一律 <code>untrack()</code></td></tr>
+                <tr><td>URL 读取</td><td><code>realQueryParam</code> / <code>liveQueryParam</code></td></tr>
+                <tr><td>禁</td><td><code>$page.url</code>（popstate 丢 query）</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <h3>MediaQueryState 出参（纯函数，可单测）</h3>
+      <div class="filebar"><b>lib/media/query.ts</b></div>
+<pre><code><span class="kw">export function</span> <span class="f">viewToParams</span>(v: SavedViewId): MediaListParams {
+  <span class="kw">switch</span> (v) {
+    <span class="kw">case</span> <span class="s">'missing'</span>:   <span class="kw">return</span> { file_missing: <span class="kw">true</span>,  exclude_series: <span class="kw">true</span>, exclude_network: <span class="kw">true</span> };
+    <span class="kw">case</span> <span class="s">'no_poster'</span>: <span class="kw">return</span> { has_poster: <span class="kw">false</span>,   exclude_series: <span class="kw">true</span>, exclude_network: <span class="kw">true</span> };
+    <span class="kw">case</span> <span class="s">'metadata'</span>:  <span class="kw">return</span> { metadata_status: <span class="s">'missing'</span>, exclude_series: <span class="kw">true</span> };
+    <span class="kw">case</span> <span class="s">'ignored'</span>:   <span class="kw">return</span> { metadata_status: <span class="s">'ignored'</span> };
+    <span class="kw">case</span> <span class="s">'untagged'</span>:  <span class="kw">return</span> { untagged: <span class="kw">true</span>, exclude_series: <span class="kw">true</span>, exclude_network: <span class="kw">true</span> };
+    <span class="kw">case</span> <span class="s">'problem'</span>:   <span class="kw">return</span> { problem: <span class="kw">true</span>, exclude_series: <span class="kw">true</span>, exclude_network: <span class="kw">true</span> };
+    <span class="kw">default</span>:          <span class="kw">return</span> {};
+  }
+}</code></pre>
+
+      <h3>文件处置清单</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>文件</th><th>现状</th><th>处置</th><th>目标</th></tr></thead>
+          <tbody>
+            <tr><td><code>manage/MediaManageView.svelte</code></td><td>3723</td><td>拆为 Workspace + Toolbar + Table + Grid + columns</td><td>5 文件 ≈1610</td></tr>
+            <tr><td><code>manage/OverviewView.svelte</code></td><td>652</td><td><b>删除</b>（决策 1），摘要条替代</td><td>0 + SummaryStrip 80</td></tr>
+            <tr><td><code>manage/ManageModuleView.svelte</code></td><td>413</td><td>拆为 RunsView + LibrariesStatusView</td><td>≈450</td></tr>
+            <tr><td><code>manage/FileExplorerView.svelte</code></td><td>363</td><td>由工作台取代</td><td>删除</td></tr>
+            <tr><td><code>media/FilterBar.svelte</code></td><td>434</td><td><b>保留</b>（决策 4：不共用工具栏）</td><td>434</td></tr>
+            <tr><td><code>lib/manage/filters.ts</code></td><td>93</td><td>迁入 <code>lib/media/query.ts</code></td><td>删除</td></tr>
+            <tr><td><code>lib/stores/manageFilter.svelte.ts</code></td><td>86</td><td>由 QueryState + URL 取代</td><td>删除</td></tr>
+            <tr><td><code>manage/ManageSidebar.svelte</code></td><td>272</td><td>导航 10→6，删死变量</td><td>≤200</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 9 ============ -->
+    <section id="s9">
+      <h2><span class="num">09</span>URL 兼容层</h2>
+      <p class="sub">旧链接全部重定向，且保留其余 query——否则详情页返回会丢筛选现场。</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>旧</th><th>新</th></tr></thead>
+          <tbody>
+            <tr><td><code>?section=files</code> / <code>&amp;asset=1</code></td><td><code>?section=assets&amp;view=all</code></td></tr>
+            <tr><td><code>?section=files&amp;source=missing</code></td><td><code>?section=assets&amp;view=missing</code></td></tr>
+            <tr><td><code>?section=files&amp;status=untagged</code></td><td><code>?section=assets&amp;view=untagged</code></td></tr>
+            <tr><td><code>?section=issues</code></td><td><code>?section=assets&amp;view=problem</code></td></tr>
+            <tr><td><code>?section=metadata</code></td><td><code>?section=assets&amp;view=metadata</code></td></tr>
+            <tr><td><code>?section=tasks</code> / <code>?section=history</code></td><td><code>?section=runs&amp;tab=tasks|history</code></td></tr>
+            <tr><td><code>?tab=media|tags|recycle</code></td><td><code>?section=assets|tags|trash</code></td></tr>
+            <tr><td><code>?section=overview|recycle|assets</code></td><td><code>overview|trash|assets</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-3);margin-top:12px">
+        实现位置：<code>routes/manage/+page.ts</code>，用 SvelteKit <code>redirect(307)</code>，
+        <code>lib / dir / tags / sort / page</code> 等参数一并搬走。
+      </p>
+    </section>
+
+    <!-- ============ 10 ============ -->
+    <section id="s10">
+      <h2><span class="num">10</span>六个 PR，全部完成</h2>
+      <p class="sub">前两个不碰 UI；第三个开始灰度并行，用「两套 total 必须相等」做闸门。实际顺序：PR1→PR2→PR3→PR4→PR5→PR3b（补能力）→PR6。</p>
+
+      <div class="card prs">
+        <div class="pr">
+          <div class="id">PR1</div>
+          <div>
+            <div class="t">后端契约</div>
+            <div class="d">新增 <code>media_query.py</code>；<code>/media</code> 加 5 个参数；<code>stats</code> 改调用同谓词并新增 <code>problem_count</code> / <code>untagged_count</code> / <code>ignored_count</code>；<code>/libraries</code> 补 3 个聚合（决策 1 前提）；护栏测试。</div>
+            <div class="flags"><span class="tag ok">已完成</span><span class="tag mute">85 passed / 0 failed</span><span class="tag mute">不动前端</span></div>
+          </div>
+        </div>
+        <div class="pr">
+          <div class="id">PR2</div>
+          <div>
+            <div class="t">前端纯函数层</div>
+            <div class="d"><code>status.ts</code> / <code>query.ts</code> / <code>views.ts</code> + vitest 矩阵测试；<code>filters.ts</code> 的实现迁走。</div>
+            <div class="flags"><span class="tag ok">已完成</span><span class="tag mute">92 passed</span><span class="tag mute">无 UI 变更</span></div>
+          </div>
+        </div>
+        <div class="pr">
+          <div class="id">PR3</div>
+          <div>
+            <div class="t">新资产工作台（并行存在）</div>
+            <div class="d">新增 <code>AssetsWorkspace</code> + 表格 + 网格 + 工具栏 + <code>useMediaList</code>；入口 <code>?section=assets&amp;view=*</code>，旧入口仍走旧实现做灰度对比。</div>
+            <div class="flags"><span class="tag ok">已完成</span><span class="tag mute">6 视图 total == stats</span><span class="tag mute">旧路径无回归</span></div>
+          </div>
+        </div>
+        <div class="pr">
+          <div class="id">PR4</div>
+          <div>
+            <div class="t">切换导航 + 兼容层</div>
+            <div class="d">导航 10 → <b>5</b> 项（资产 / 标签 / 回收站 / 运行 / 资源库）；<code>+page.ts</code> 用 <code>redirect(307)</code> 做 7 类旧 URL 兼容；新增 <code>RunsView</code> 与 <code>LibrariesStatusView</code>。</div>
+            <div class="flags"><span class="tag ok">已完成</span><span class="tag mute">重定向真机验证</span><span class="tag mute">保留其余 query</span></div>
+          </div>
+        </div>
+        <div class="pr">
+          <div class="id">PR5</div>
+          <div>
+            <div class="t">概览删除 + 旧分支清理</div>
+            <div class="d">删除 <code>OverviewView</code>(652) 与 <code>ManageModuleView</code>(413)；两者在 PR4 重定向后已无引用。</div>
+            <div class="flags"><span class="tag ok">已完成</span><span class="tag mute">−1065 行</span></div>
+          </div>
+        </div>
+        <div class="pr">
+          <div class="id">PR6</div>
+          <div>
+            <div class="t">删除旧实现</div>
+            <div class="d">删 <code>MediaManageView</code>(3723) / <code>FileExplorerView</code>(363) / <code>lib/manage/filters.ts</code>+测试 / <code>manageFilter</code> store；<code>filterTreeByType</code> 先搬到 <code>api/tags.ts</code>（树语义不能丢）。<code>FilterBar</code> 按决策 4 <b>保留</b>。</div>
+            <div class="flags"><span class="tag ok">已完成</span><span class="tag mute">−4392 行</span><span class="tag mute">7 页真机回归</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 11 ============ -->
+    <section id="s11">
+      <h2><span class="num">11</span>验收指标</h2>
+      <p class="sub">不只「能跑」，要能证明变好。</p>
+
+      <div class="card">
+        <div class="bars">
+          <div class="barrow">
+            <div class="lab">问题视图首屏请求</div>
+            <div class="dual">
+              <div class="track"><div class="fill before" style="width:100%"></div></div>
+              <div class="track"><div class="fill after" style="width:20%"></div></div>
+            </div>
+            <div class="val"><s>5</s> → <b>1</b></div>
+          </div>
+          <div class="barrow">
+            <div class="lab">问题视图传输量</div>
+            <div class="dual">
+              <div class="track"><div class="fill before" style="width:100%"></div></div>
+              <div class="track"><div class="fill after" style="width:5.9%"></div></div>
+            </div>
+            <div class="val"><s>3.42 MB</s> → <b>205 KB</b></div>
+          </div>
+          <div class="barrow">
+            <div class="lab">管理页前端行数</div>
+            <div class="dual">
+              <div class="track"><div class="fill before" style="width:100%"></div></div>
+              <div class="track"><div class="fill after" style="width:72.4%"></div></div>
+            </div>
+            <div class="val"><s>8978</s> → <b>6500</b></div>
+          </div>
+          <div class="barrow">
+            <div class="lab">导航 section</div>
+            <div class="dual">
+              <div class="track"><div class="fill before" style="width:100%"></div></div>
+              <div class="track"><div class="fill after" style="width:50%"></div></div>
+            </div>
+            <div class="val"><s>10</s> → <b>5</b></div>
+          </div>
+          <div class="barrow">
+            <div class="lab">死参数 <code>asset=1</code></div>
+            <div class="dual">
+              <div class="track"><div class="fill before" style="width:100%"></div></div>
+              <div class="track"></div>
+            </div>
+            <div class="val"><s>6</s> → <b>0</b></div>
+          </div>
+          <div class="barrow">
+            <div class="lab">集合视图实现</div>
+            <div class="dual">
+              <div class="track"><div class="fill before" style="width:100%"></div></div>
+              <div class="track"><div class="fill after" style="width:25%"></div></div>
+            </div>
+            <div class="val"><s>4</s> → <b>1</b></div>
+          </div>
+          <div class="barrow">
+            <div class="lab">svelte-check 警告</div>
+            <div class="dual">
+              <div class="track"><div class="fill before" style="width:100%"></div></div>
+              <div class="track"></div>
+            </div>
+            <div class="val"><s>119</s> → <b>0</b></div>
+          </div>
+        </div>
+        <div class="legend" style="margin-top:16px">
+          <span><i style="background:var(--danger);opacity:.55"></i>上条 = 重构前</span>
+          <span><i style="background:var(--ok);opacity:.78"></i>下条 = 现在</span>
+        </div>
+      </div>
+
+      <div class="grid g3" style="margin-top:16px">
+        <div class="card">
+          <div class="k" style="font-size:12px;color:var(--ink-3)">svelte-check</div>
+          <div style="font-size:20px;font-weight:700;margin:4px 0 6px">0 error / 0 warn</div>
+          <div style="font-size:12.5px;color:var(--ink-3)">重构前 0 / 119；本轮清空了全部 a11y 与 CSS 警告</div>
+        </div>
+        <div class="card">
+          <div class="k" style="font-size:12px;color:var(--ink-3)">pytest</div>
+          <div style="font-size:20px;font-weight:700;margin:4px 0 6px">85 passed / 0 failed</div>
+          <div style="font-size:12.5px;color:var(--ink-3)">原 77 + 1 条陈旧失败；新增 7 个视图护栏 + 修好旧断言</div>
+        </div>
+        <div class="card">
+          <div class="k" style="font-size:12px;color:var(--ink-3)">vitest</div>
+          <div style="font-size:20px;font-weight:700;margin:4px 0 6px">47 → 83</div>
+          <div style="font-size:12.5px;color:var(--ink-3)">query / views 矩阵 + tags 树过滤；删 15 条旧实现测试</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 12 ============ -->
+    <section id="s12">
+      <h2><span class="num">12</span>风险与回滚</h2>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>风险</th><th>缓解</th></tr></thead>
+          <tbody>
+            <tr><td>URL 兼容破坏「返回现场」</td><td>重定向保留全部 query；PR4 手测覆盖详情往返</td></tr>
+            <tr><td>新旧并存期数据不一致</td><td>PR3 强制对比 <code>total</code>，不一致即阻断合并</td></tr>
+            <tr><td>大组件拆分引入响应式回归</td><td>严守三铁律：<code>untrack()</code> / <code>realQueryParam</code> / 禁 <code>$page.url</code></td></tr>
+            <tr><td>统计口径改动影响别处</td><td>PR1 只<b>新增</b>字段，旧字段语义不变</td></tr>
+            <tr><td>单 PR 过大</td><td>每个 PR ≤ 2 个关注点；PR1/2 不依赖 UI</td></tr>
+            <tr><td><b>删除概览后失去「打开就知道有没有问题」</b></td><td>摘要条必须首屏可见；侧边栏徽标改为并集计数（比现在更准）</td></tr>
+            <tr><td><code>/libraries</code> 聚合引入 SQL 回归</td><td>单条 outerjoin + group_by；<code>media.library_id</code> 有索引；沿用现有 libraries 测试</td></tr>
+            <tr><td>不共用工具栏 → 两套工具栏长期分叉</td><td>用同一份 <code>MediaQueryState</code> 契约 + 同一套 vitest 矩阵约束行为，UI 各自自由</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-3);margin-top:12px">
+        回滚：PR1–PR4 期间每个 PR 可独立 revert；<b>PR6 之后旧实现已删除</b>，回滚该步需要 revert 提交而非切导航。
+      </p>
+    </section>
+
+    <!-- ============ 13 ============ -->
+    <section id="s13">
+      <h2><span class="num">13</span>决策已定</h2>
+      <p class="sub">2026-10-22 拍板，四项全部锁定；下面是决策本身与它带来的硬性后果。</p>
+
+      <div class="grid g2">
+        <div class="card dec">
+          <div class="q">1</div>
+          <h4>概览页不留</h4>
+          <p>删除 <code>OverviewView</code>(652) 与 <code>?section=overview</code>，导航从 6 收敛到 <b>5</b>。</p>
+          <div class="rec"><b>硬性前提：</b>它独占的三份数据必须搬家 → 库健康进 <code>libraries</code> 页、最近活动进 <code>runs</code>、数字进 <code>assets</code> 顶部摘要条。<br>
+          另外 <code>GET /libraries</code> 要补 <code>media_count / missing_count / total_size</code> 三个聚合（现在没有）。</div>
+        </div>
+        <div class="card dec">
+          <div class="q">2</div>
+          <h4>评估有效性与效率</h4>
+          <p>已用真实数据（dev 库 874 条）实测，见下一节。</p>
+          <div class="rec"><b>结论：</b>PR1/PR2 收益确定、风险低，建议立刻做；工作台合并值得做；共用工具栏不做（已否决，判断正确）。</div>
+        </div>
+        <div class="card dec">
+          <div class="q">3</div>
+          <h4>「已忽略刮削」独立</h4>
+          <p>独立成 Saved View + 独立计数，不再混在「元数据待处理」里当成一个筛选开关。</p>
+          <div class="rec"><b>后果：</b><code>stats</code> 增加 <code>ignored_count</code>；PR1 从 2 个新字段变 3 个。</div>
+        </div>
+        <div class="card dec">
+          <div class="q">4</div>
+          <h4>不共用工具栏</h4>
+          <p>两个页面核心功能不同：媒体页是「浏览与播放」，管理页是「治理与批处理」。<code>FilterBar</code>(434) 保留给媒体页。</p>
+          <div class="rec"><b>后果：</b>共用面收窄到 <code>query / status / useMediaList / columns</code>；<code>MediaToolbar</code> 不再抽取，改为管理页专属 <code>AssetsToolbar</code>。目标行数从 ≤6000 修正为 ≈6300，<b>实际落地 6500</b>。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 14 ============ -->
+    <section id="s14">
+      <h2><span class="num">14</span>有效性评估 · 实测</h2>
+      <p class="sub">数据来自 dev 库（874 条媒体）直接跑谓词与序列化实测，不是估算。</p>
+
+      <div class="callout warn">
+        <div>
+          <h4>先修正一个数字：不是 21 次请求</h4>
+          <p>
+            v1 写的「21 请求 / 4000 行」是代码上限（<code>page ≤ 20</code> × <code>page_size=200</code>）。
+            874 条的真实值是 <b>5 次</b>。所以准确的问题是两段：
+          </p>
+          <p>
+            <b>874 条 → 浪费</b>（5 次请求 3.42 MB，只为显示 10~22 条）；
+            <b>超过 4,000 条 → 算错</b>（循环在第 20 页终止，第 4001 条以后的问题项<b>静默丢失</b>）。
+            后者才是必须修的硬理由。
+          </p>
+        </div>
+      </div>
+
+      <h3>实测数字</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>项</th><th>实测值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>媒体总量</td><td><b>874</b></td><td>dev 库 <code>media</code> 表</td></tr>
+            <tr><td>单条 <code>MediaResponse</code></td><td><b>4,098 B</b></td><td>50 条样本 204,876 B 均值（含 tags / 路径 / 刮削）</td></tr>
+            <tr><td>全量拉取体积</td><td><b>3.42 MB</b></td><td>874 × 4,098 B</td></tr>
+            <tr><td>文件缺失</td><td>10</td><td><code>file_missing</code> + scope</td></tr>
+            <tr><td>缺封面</td><td>0</td><td>当前数据里每一条都有封面或缩略图</td></tr>
+            <tr><td>元数据待处理</td><td>19</td><td>非剧集 + 未忽略 + 缺封面或缺刮削</td></tr>
+            <tr><td>无标签</td><td>22</td><td><code>NOT EXISTS video_tags</code></td></tr>
+            <tr><td>存在问题（并集）</td><td><b>29</b></td><td>10 + 0 + 19 = 29，本批数据无重叠</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:13.5px;color:var(--ink-3);margin-top:12px">
+        注意最后一行：本批数据里「求和 = 并集」纯属巧合。一旦存在既缺封面又缺元数据的条目，
+        侧边栏的求和口径就会偏大——这正是 D6 要修的。
+      </p>
+
+      <h3>效率收益</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>指标</th><th>现状</th><th>改后</th><th>倍率</th></tr></thead>
+          <tbody>
+            <tr><td>问题视图请求数</td><td>5</td><td>1</td><td class="tag ok">5×</td></tr>
+            <tr><td>传输量</td><td>3.42 MB</td><td>≈205 KB</td><td class="tag ok">17×</td></tr>
+            <tr><td>反序列化对象</td><td>874</td><td>50</td><td class="tag ok">17×</td></tr>
+            <tr><td>切换视图时的客户端遍历</td><td>874 次</td><td>0</td><td class="tag ok">消除</td></tr>
+            <tr><td>1 万条媒体时</td><td>20 请求 / 39 MB / 截断</td><td>1 请求 / 205 KB / 正确</td><td class="tag ok">质变</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>功能守恒核对</h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>现有能力</th><th>改后位置</th><th>结论</th></tr></thead>
+          <tbody>
+            <tr><td>列表 / 筛选 / 排序 / 分页</td><td><code>assets</code> + <code>AssetsToolbar</code></td><td class="tag ok">守恒，且多 3 个状态维度</td></tr>
+            <tr><td>批量操作（评分/打标/移动/改名/删除/导出）</td><td><code>AssetsWorkspace</code> 批处理 hook</td><td class="tag ok">守恒</td></tr>
+            <tr><td>问题中心 / 元数据工作台 / 来源=丢失</td><td>7 个 Saved View</td><td class="tag ok">守恒，合并为一条路径</td></tr>
+            <tr><td>任务队列 + 操作记录</td><td><code>runs</code> 两个 tab</td><td class="tag ok">守恒</td></tr>
+            <tr><td>资源库状态</td><td><code>libraries</code> + 库健康</td><td class="tag ok">守恒，信息更全</td></tr>
+            <tr><td>概览「一屏纵览」</td><td>摘要条 + 侧边栏徽标 + 库健康页</td><td class="tag warn">由页面降级为一行摘要</td></tr>
+            <tr><td>概览自带资产表格</td><td><code>assets&amp;view=all</code></td><td class="tag ok">重复实现删除</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>结论：该做哪部分</h3>
+      <div class="grid g3">
+        <div class="card">
+          <div class="tag ok">必须先做</div>
+          <h4 style="margin:9px 0 6px;font-size:14.5px">PR1 后端契约</h4>
+          <p style="margin:0;font-size:13.5px;color:var(--ink-2)">
+            修 D2 / D4 / D6 与「4000 条截断」，不碰 UI，带 pytest 护栏。加上 D5/D7/D8 三个小缺陷，
+            <b>半天可完成</b>。
+          </p>
+        </div>
+        <div class="card">
+          <div class="tag warn">值得做</div>
+          <h4 style="margin:9px 0 6px;font-size:14.5px">资产工作台合并</h4>
+          <p style="margin:0;font-size:13.5px;color:var(--ink-2)">
+            省约 2,700 行，消灭 3 份状态词表，导航 10 → 5。需要 UI 迁移与灰度对比。
+          </p>
+        </div>
+        <div class="card">
+          <div class="tag mute">不做</div>
+          <h4 style="margin:9px 0 6px;font-size:14.5px">共用工具栏 / 拆标签页</h4>
+          <p style="margin:0;font-size:13.5px;color:var(--ink-2)">
+            两者筛选维度本就不同（决策 4 判断正确）；<code>TagsManageView</code> 与本主题无关，别混进来。
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="end">
+    <div>vitoice · 管理页信息架构重构 · 已实施（PR1–PR6）· 2026-10-22</div>
+    <div>基线 <code>1189a80</code> · manage/*.svelte 8978 → 6500 行 · 详细设计见 <code>doc/管理页信息架构重构-详细设计-v2.md</code></div>
+  </footer>
+</div>
+
+<button class="theme-toggle" id="themeToggle" type="button">切换主题</button>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- 主题切换：优先级 = URL ?theme= > localStorage > 系统 ----
+  var root = document.documentElement;
+  var KEY = "vitoice-design-theme";
+
+  function readUrlTheme() {
+    try {
+      var t = new URLSearchParams(window.location.search).get("theme");
+      return t === "light" || t === "dark" ? t : null;
+    } catch (e) { return null; }
+  }
+
+  var initial = readUrlTheme();
+  if (initial) {
+    root.setAttribute("data-theme", initial);
+  } else {
+    try {
+      var saved = localStorage.getItem(KEY);
+      if (saved === "light" || saved === "dark") root.setAttribute("data-theme", saved);
+    } catch (e) { /* localStorage 可能被禁用 */ }
+  }
+
+  var btn = document.getElementById("themeToggle");
+  btn.addEventListener("click", function () {
+    var current = root.getAttribute("data-theme");
+    if (!current) {
+      var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      current = prefersDark ? "dark" : "light";
+    }
+    var next = current === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem(KEY, next); } catch (e) { /* ignore */ }
+  });
+
+  // ---- 目录高亮 ----
+  var links = Array.prototype.slice.call(document.querySelectorAll("nav.toc a"));
+  var sections = links.map(function (a) {
+    var id = a.getAttribute("href").slice(1);
+    return document.getElementById(id);
+  });
+
+  function setActive(id) {
+    links.forEach(function (a) {
+      var on = a.getAttribute("href") === "#" + id;
+      a.classList.toggle("active", on);
+    });
+  }
+
+  if ("IntersectionObserver" in window) {
+    var visible = new Map();
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        visible.set(en.target.id, en.isIntersecting ? en.intersectionRatio : 0);
+      });
+      var best = null, bestRatio = -1;
+      visible.forEach(function (ratio, id) {
+        if (ratio > bestRatio) { bestRatio = ratio; best = id; }
+      });
+      if (best) setActive(best);
+    }, { rootMargin: "-15% 0px -70% 0px", threshold: [0, .25, .5, 1] });
+
+    sections.forEach(function (s) { if (s) io.observe(s); });
+  }
+
+  // ---- 瀑布图入场动画延迟（避免一次性闪出）----
+  var bars = document.querySelectorAll(".wf");
+  for (var i = 0; i < bars.length; i++) {
+    bars[i].style.animationDelay = (i * 28) + "ms";
+  }
+})();
+</script>
+</body>
+</html>

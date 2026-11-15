@@ -51,6 +51,16 @@ backend/_smoke*.db
 .reasonix/
 .trae-html-share-packages/
 
+# Agent/IDE workspace cache (design notes live in doc/)
+.trae/
+
+# Test temp roots (pytest tmp_path base)
+pytest-of-*/
+backend/pytest-of-*/
+
+# Browser DevTools debugging dumps
+cdp-*/
+
 # Frontend build artifacts
 frontend/.svelte-kit/
 frontend/build/
@@ -69,6 +79,10 @@ generate_image_makabaka.ps1
 *.local.ps1
 *.key
 *.pem
+
+# Bundled mpv binaries (too large for git: libmpv-2.dll ~96MB).
+# Place libmpv-2.dll and libmpv-wrapper.dll into src-tauri/lib/ before `tauri build`.
+src-tauri/lib/*.dll
 
 # Bundled ffmpeg binaries (too large for git, installed via script or manually)
 # Keep the directory but ignore the executables
