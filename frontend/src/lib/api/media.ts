@@ -14,6 +14,14 @@ export interface MediaUrl {
   url_role: UrlRole;
   title: string | null;
   platform: string | null;
+  /** 在线源名称（从 /online 入库时写入） */
+  source_name?: string | null;
+  source_id?: string | null;
+  /** 线路 flag，如 lzm3u8 */
+  line_name?: string | null;
+  /** 集名，如 第01集 */
+  episode_name?: string | null;
+  episode_index?: number | null;
   is_expired: boolean;
   created_at: string;
   updated_at: string;

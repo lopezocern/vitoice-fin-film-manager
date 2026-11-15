@@ -100,6 +100,11 @@
     }
   }
 
+  /** 在线源入库的链接带线路/集数；拼成一个可读标签。 */
+  function lineLabel(link: MediaUrl): string {
+    return [link.line_name, link.episode_name].filter(Boolean).join(' · ');
+  }
+
   function cancelLinkEditor(): void {
     oncancel?.();
   }
@@ -142,6 +147,12 @@
             >
               <svg viewBox="0 0 24 24" width="12" height="12"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
               {link.title || linkHost(link.url)}
+              {#if link.source_name}
+                <span class="link-platform">{link.source_name}</span>
+              {/if}
+              {#if lineLabel(link)}
+                <span class="link-platform">{lineLabel(link)}</span>
+              {/if}
               {#if link.platform}
                 <span class="link-platform">{link.platform}</span>
               {/if}

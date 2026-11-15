@@ -19,6 +19,11 @@ class MediaUrlCreate(BaseModel):
     url_role: UrlRole = UrlRole.REFERENCE
     title: str | None = Field(None, max_length=500)
     platform: str | None = Field(None, max_length=100)
+    source_name: str | None = Field(None, max_length=100)
+    source_id: str | None = Field(None, max_length=100)
+    line_name: str | None = Field(None, max_length=100)
+    episode_name: str | None = Field(None, max_length=200)
+    episode_index: int | None = None
     played_progress: float = 0.0
     is_expired: bool = False
 
@@ -29,6 +34,11 @@ class MediaUrlUpdate(BaseModel):
     url_role: UrlRole | None = None
     title: str | None = Field(None, max_length=500)
     platform: str | None = Field(None, max_length=100)
+    source_name: str | None = Field(None, max_length=100)
+    source_id: str | None = Field(None, max_length=100)
+    line_name: str | None = Field(None, max_length=100)
+    episode_name: str | None = Field(None, max_length=200)
+    episode_index: int | None = None
     is_expired: bool | None = None
 
 
@@ -40,6 +50,11 @@ class MediaUrlResponse(ORMBaseModel):
     url_role: UrlRole
     title: str | None = None
     platform: str | None = None
+    source_name: str | None = None
+    source_id: str | None = None
+    line_name: str | None = None
+    episode_name: str | None = None
+    episode_index: int | None = None
     last_visited_at: datetime | None = None
     played_progress: float = 0.0
     is_expired: bool = False

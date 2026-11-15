@@ -49,9 +49,18 @@
   let groups = $state<OnlinePlayGroup[]>([]);
   let activeGroup = $state(0);
   let resolvedTitle = $state('');
+  // 当前解析来源：入库时写进 MediaUrl，便于日后回源刷新
+  let activeSourceId = $state<string | null>(null);
 
   // 播放层
-  let playing = $state<{ title: string; url: string; direct: boolean } | null>(null);
+  let playing = $state<{
+    title: string;
+    url: string;
+    direct: boolean;
+    lineName: string;
+    episodeName: string;
+    episodeIndex: number;
+  } | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let hlsRef: { destroy: () => void } | null = null;
   let importing = $state(false);
@@ -119,6 +128,7 @@
     resolving = `${sourceId}:${vodId}`;
     groups = [];
     activeGroup = 0;
+    activeSourceId = sourceId;
     try {
       const res = await onlineSourcesApi.resolve(sourceId, vodId);
       groups = res.groups;
@@ -131,13 +141,21 @@
     }
   }
 
-  async function play(ep: { name: string; url: string; direct: boolean }): Promise<void> {
+  async function play(ep: { name: string; url: string; direct: boolean }, index: number): Promise<void> {
     if (!ep.direct) {
       // 非直链：交给系统浏览器打开原站页面，避免把解析逻辑硬编码进来
       window.open(ep.url, '_blank', 'noopener');
       return;
     }
-    playing = { title: `${resolvedTitle} · ${ep.name}`, url: ep.url, direct: true };
+    const lineName = groups[activeGroup]?.flag ?? '';
+    playing = {
+      title: `${resolvedTitle} · ${ep.name}`,
+      url: ep.url,
+      direct: true,
+      lineName,
+      episodeName: ep.name,
+      episodeIndex: index
+    };
     await Promise.resolve();
     void attachStream();
   }
@@ -178,7 +196,8 @@
   }
 
   async function importToLibrary(): Promise<void> {
-    if (!playing || importing) return;
+    const current = playing;
+    if (!current || importing) return;
     const libId = Number(importLibraryId);
     if (!libId) {
       toasts.push('请先选择要入库的资源库', 'err');
@@ -186,12 +205,34 @@
     }
     importing = true;
     try {
+      // 整条线路一起入库：详情页与播放器可直接换源，来源信息随 URL 保存。
+      const entries = groups.flatMap((g) =>
+        g.episodes
+          .filter((e) => e.direct)
+          .map((e, idx) => ({
+            url: e.url,
+            line_name: g.flag,
+            episode_name: e.name,
+            episode_index: idx
+          }))
+      );
+      if (!entries.some((e) => e.url === current.url)) {
+        entries.unshift({
+          url: current.url,
+          line_name: current.lineName,
+          episode_name: current.episodeName,
+          episode_index: current.episodeIndex
+        });
+      }
       await client.post('/media/import-network', {
         library_id: libId,
-        url: playing.url,
-        title: playing.title
+        url: current.url,
+        title: resolvedTitle || current.title,
+        source_id: activeSourceId,
+        source_name: configs.find((c) => c.id === activeSourceId)?.name ?? null,
+        urls: entries
       });
-      toasts.push('已入库为网络媒体');
+      toasts.push(`已入库，保留 ${entries.length} 条线路`);
       librariesStore.notifyChanged?.();
     } catch (e) {
       toasts.push(errorMessage(e, '入库失败'), 'err');
@@ -461,7 +502,7 @@
             {#if currentGroup}
               <div class="episodes">
                 {#each currentGroup.episodes as ep, i (i)}
-                  <button type="button" class="ep" class:page={!ep.direct} onclick={() => void play(ep)}>
+                  <button type="button" class="ep" class:page={!ep.direct} onclick={() => void play(ep, i)}>
                     {ep.name}
                     {#if !ep.direct}<em>开原站</em>{/if}
                   </button>

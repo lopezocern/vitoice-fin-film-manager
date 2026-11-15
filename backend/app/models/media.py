@@ -147,6 +147,14 @@ class MediaUrl(Base):
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     platform: Mapped[str | None] = mapped_column(String(100), nullable=True)  # youtube, bilibili, etc.
 
+    # 在线源来源信息。从 /online 入库时写入，用于详情页与播放器区分
+    # 「哪个源的哪条线路的第几集」；手工添加的链接这些字段为 NULL。
+    source_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    line_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 线路 flag，如 lzm3u8
+    episode_name: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 集名，如 第01集
+    episode_index: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 同线路内序号，从 0 开始
+
     # Action tracking (L1/L2/L3)
     last_visited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     played_progress: Mapped[float] = mapped_column(Float, default=0.0)  # seconds

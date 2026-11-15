@@ -75,7 +75,7 @@
     playback_speed: number | null;
     segments: Segment[];
     subtitles: Subtitle[];
-    urls?: { id: number; url: string; url_role: string; platform?: string | null; is_expired: boolean; played_progress?: number }[];
+    urls?: { id: number; url: string; url_role: string; platform?: string | null; is_expired: boolean; played_progress?: number; source_name?: string | null; line_name?: string | null; episode_name?: string | null }[];
     created_at: string;
     updated_at: string;
   }
@@ -291,6 +291,15 @@
     if (idx === activeSourceIdx || idx < 0 || idx >= playableSources.length) return;
     activeSourceIdx = idx;
     showControls();
+  }
+
+  /** 源切换按钮文案：在线源入库的「线路 · 集数」优先，其次平台名。 */
+  function sourceLabel(
+    s: { platform?: string | null; line_name?: string | null; episode_name?: string | null },
+    idx: number
+  ): string {
+    const parts = [s.line_name, s.episode_name].filter(Boolean).join(' · ');
+    return parts || s.platform || `源 ${idx + 1}`;
   }
 
   const networkMode = $derived.by(() => {
@@ -2458,7 +2467,7 @@
                 onclick={() => switchSource(i)}
                 title={s.url}
               >
-                {s.platform || `源 ${i + 1}`}
+                {sourceLabel(s, i)}
               </button>
             {/each}
           </div>
