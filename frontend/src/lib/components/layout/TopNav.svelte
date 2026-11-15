@@ -129,6 +129,13 @@
         </svg>
         <span>媒体</span>
       </button>
+      <button class="tab" class:active={tabActive('/online')} aria-current={tabActive('/online') ? 'page' : undefined} data-tauri-drag-region="false" onclick={() => goto('/online')}>
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="8" cy="8" r="6"></circle>
+          <path d="M2 8h12M8 2c2 2.4 2 9.6 0 12M8 2c-2 2.4-2 9.6 0 12" stroke-opacity="0.55"></path>
+        </svg>
+        <span>在线</span>
+      </button>
       <button class="tab" class:active={tabActive('/manage')} aria-current={tabActive('/manage') ? 'page' : undefined} data-tauri-drag-region="false" onclick={() => goto('/manage')}>
         <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M2 4h6M2 8h9M2 12h5" stroke-linecap="round"></path>
@@ -477,9 +484,8 @@
     color: #fff;
   }
 
-  /* 所有交互元素排除拖拽 */
+  /* 所有交互元素排除拖拽（WebView2 只认 -webkit- 前缀） */
   .topnav button {
     -webkit-app-region: no-drag;
-    app-region: no-drag;
   }
 </style>

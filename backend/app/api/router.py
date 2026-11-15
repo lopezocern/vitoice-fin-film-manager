@@ -15,6 +15,7 @@ from app.api import (
     media,
     media_ai,
     media_import,
+    media_sources,
     media_urls,
     network_sources,
     recycle_bin,
@@ -36,6 +37,7 @@ api_router.include_router(libraries.router)
 api_router.include_router(media.router)
 api_router.include_router(media_urls.router)
 api_router.include_router(network_sources.router)
+api_router.include_router(media_sources.router)
 api_router.include_router(media_ai.router)
 api_router.include_router(media_import.router)
 api_router.include_router(batch.router)
